@@ -137,3 +137,23 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Hardhat
+cache/
+artifacts/
+typechain/
+typechain-types/
+
+# VSCode temp files
+.vscode_hardhat_config_*.ts
+
+# Mac
+.DS_Store
+
+
+README.md
+DEPLOYMENT_GUIDE.md
+GOODBUILDERS_APPLICATION.md
+IMPLEMENTATION_SUMMARY.md
+QUICK_START_CHECKLIST.md
+backend/README.md
