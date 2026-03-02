@@ -1,4 +1,9 @@
+# [build]
+#   base = "frontend"
+#   command = "npm install --legacy-peer-deps && npm run build"
+#   publish = ".next"
+
 [build]
   base = "frontend"
-  command = "npm install --legacy-peer-deps && npm run build"
+  command = "npm install -g npm@8 && npm install --legacy-peer-deps && npm run build"
   publish = ".next"
