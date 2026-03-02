@@ -4,10 +4,10 @@ export default function Home() {
   return (
     <div className="max-w-7xl mx-auto px-6 py-16">
       <header className="mb-16 text-center">
-        <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight mb-6">
+        <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight mb-6 text-slate-900 dark:text-white">
           Grow your <span className="bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-400">Habit Garden</span>
         </h1>
-        <p className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto leading-relaxed">
+        <p className="text-lg md:text-xl text-slate-600 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed">
           Stake G$ on yourself. Build real-world healthy habits, prove you did the work, and harvest daily yields. 
           Fail, and your stake funds the global UBI pool.
         </p>

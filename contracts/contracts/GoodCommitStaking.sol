@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./IGoodDollar.sol";
 
@@ -135,7 +135,7 @@ contract GoodCommitStaking is ReentrancyGuard, Pausable, Ownable {
         address _ubiPool,
         address _rewardTreasury,
         address _verifier
-    ) {
+    ) Ownable(msg.sender) {
         require(_gToken != address(0), "Invalid G$ token address");
         require(_ubiPool != address(0), "Invalid UBI pool address");
         require(_rewardTreasury != address(0), "Invalid reward treasury");
