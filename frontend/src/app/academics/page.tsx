@@ -21,7 +21,16 @@ type Question = {
 function AcademicsPage() {
   const { isConnected, address } = useAccount();
   const { balance, approveStaking, isApproving, isApproved } = useGToken();
-  const { stakeInfo, plantSeed, isPlanting, isPlanted, refetchStake } = useStaking(HabitType.Academics);
+  const { 
+    stakeInfo, 
+    plantSeed, 
+    isPlanting, 
+    isPlanted, 
+    refetchStake,
+    claimAllPoints,
+    stakePartialAndClaim,
+    stakeAllPoints,
+  } = useStaking(HabitType.Academics);
   const { isVerified, isLoading: isVerificationLoading, markAsVerified } = useFaceVerification();
   
   // Quiz state
@@ -67,70 +76,36 @@ function AcademicsPage() {
     
     setIsGeneratingQuiz(true);
     
-    // TODO: Send PDF to backend for AI quiz generation
-    // For now, generating mock questions
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    const mockQuestions: Question[] = [
-      {
-        question: "What is the primary function of mitochondria in a cell?",
-        options: ["Protein synthesis", "Energy production", "DNA replication", "Cell division"],
-        correctAnswer: 1
-      },
-      {
-        question: "Which of the following is NOT a renewable energy source?",
-        options: ["Solar power", "Wind power", "Natural gas", "Hydroelectric power"],
-        correctAnswer: 2
-      },
-      {
-        question: "What is the capital of Nigeria?",
-        options: ["Lagos", "Abuja", "Kano", "Port Harcourt"],
-        correctAnswer: 1
-      },
-      {
-        question: "In mathematics, what is the value of π (pi) approximately?",
-        options: ["2.14", "3.14", "4.14", "5.14"],
-        correctAnswer: 1
-      },
-      {
-        question: "Who wrote the play 'Romeo and Juliet'?",
-        options: ["Charles Dickens", "William Shakespeare", "Jane Austen", "Mark Twain"],
-        correctAnswer: 1
-      },
-      {
-        question: "What is the chemical symbol for gold?",
-        options: ["Go", "Gd", "Au", "Ag"],
-        correctAnswer: 2
-      },
-      {
-        question: "Which planet is known as the Red Planet?",
-        options: ["Venus", "Jupiter", "Mars", "Saturn"],
-        correctAnswer: 2
-      },
-      {
-        question: "What is the largest ocean on Earth?",
-        options: ["Atlantic Ocean", "Indian Ocean", "Arctic Ocean", "Pacific Ocean"],
-        correctAnswer: 3
-      },
-      {
-        question: "In which year did Nigeria gain independence?",
-        options: ["1958", "1960", "1962", "1963"],
-        correctAnswer: 1
-      },
-      {
-        question: "What is the square root of 144?",
-        options: ["10", "11", "12", "13"],
-        correctAnswer: 2
+    try {
+      // Send PDF to backend for quiz generation
+      const formData = new FormData();
+      formData.append('pdf', uploadedFile);
+      formData.append('userAddress', address || '');
+      
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      const response = await fetch(`${backendUrl}/api/quiz/generate`, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate quiz');
       }
-    ];
-    
-    setQuestions(mockQuestions);
-    setIsGeneratingQuiz(false);
-    setQuizStage('quiz');
-    setCurrentQuestionIndex(0);
-    setEarnedPoints(0);
-    setCorrectAnswers(0);
-    setWrongAnswers(0);
+      
+      setQuestions(data.questions);
+      setIsGeneratingQuiz(false);
+      setQuizStage('quiz');
+      setCurrentQuestionIndex(0);
+      setEarnedPoints(0);
+      setCorrectAnswers(0);
+      setWrongAnswers(0);
+    } catch (error) {
+      console.error('Quiz generation error:', error);
+      alert('Failed to generate quiz. Please try again.');
+      setIsGeneratingQuiz(false);
+    }
   };
   
   const handleAnswerSelect = (answerIndex: number) => {
@@ -158,9 +133,8 @@ function AcademicsPage() {
     }
   };
   
-  const finishQuiz = () => {
+  const finishQuiz = async () => {
     const finalCorrect = correctAnswers + (questions[currentQuestionIndex].userAnswer === questions[currentQuestionIndex].correctAnswer ? 1 : 0);
-    const finalWrong = questions.length - finalCorrect;
     
     // Calculate final points
     let pointsToAdd = finalCorrect * 10;
@@ -170,34 +144,77 @@ function AcademicsPage() {
       pointsToAdd = -3;
     }
     
-    setTotalPoints(prev => Math.max(0, prev + pointsToAdd));
+    // Submit quiz to backend
+    try {
+      const answers = questions.map(q => q.userAnswer ?? -1);
+      
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      const response = await fetch(`${backendUrl}/api/quiz/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userAddress: address,
+          answers,
+          totalQuestions: questions.length,
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        console.error('Quiz submission failed:', data.error);
+        alert(`Failed to submit quiz: ${data.message || data.error}`);
+      } else {
+        console.log('Quiz submitted:', data);
+        // Update points based on backend response
+        setTotalPoints(prev => Math.max(0, prev + pointsToAdd));
+        // Refetch stake info to update plant status
+        refetchStake();
+      }
+    } catch (error) {
+      console.error('Error submitting quiz:', error);
+      alert('Failed to submit quiz. Please try again.');
+    }
+    
     setQuizStage('results');
   };
   
-  const handleClaimAll = () => {
-    // TODO: Sign transaction to claim all points
-    alert(`Claiming ${totalPoints} points to wallet!`);
-    setTotalPoints(10); // Reset to seed amount
-    setQuizStage('upload');
-    setUploadedFile(null);
+  const handleClaimAll = async () => {
+    try {
+      await claimAllPoints();
+      setTotalPoints(10); // Reset to seed amount
+      setQuizStage('upload');
+      setUploadedFile(null);
+    } catch (error) {
+      console.error('Claim failed:', error);
+      alert('Failed to claim points. Please try again.');
+    }
   };
   
-  const handleStakeAndClaim = (stakeAmount: number) => {
-    // TODO: Sign transaction to stake portion and claim rest
-    const claimAmount = totalPoints - stakeAmount;
-    alert(`Staking ${stakeAmount} points and claiming ${claimAmount} points!`);
-    setTotalPoints(stakeAmount + 5); // Staked amount + bonus
-    setQuizStage('upload');
-    setUploadedFile(null);
+  const handleStakeAndClaim = async (stakeAmount: number) => {
+    try {
+      await stakePartialAndClaim(BigInt(stakeAmount));
+      const claimAmount = totalPoints - stakeAmount;
+      setTotalPoints(stakeAmount + Math.floor(stakeAmount * 0.05)); // Staked amount + 5% bonus
+      setQuizStage('upload');
+      setUploadedFile(null);
+    } catch (error) {
+      console.error('Stake and claim failed:', error);
+      alert('Failed to stake and claim. Please try again.');
+    }
   };
   
-  const handleStakeAll = () => {
-    // TODO: Sign transaction to stake all points
-    const bonus = Math.floor(totalPoints * 0.1); // 10% bonus
-    alert(`Staking all ${totalPoints} points! Bonus: ${bonus} points`);
-    setTotalPoints(totalPoints + bonus);
-    setQuizStage('upload');
-    setUploadedFile(null);
+  const handleStakeAll = async () => {
+    try {
+      await stakeAllPoints();
+      const bonus = Math.floor(totalPoints * 0.1); // 10% bonus
+      setTotalPoints(totalPoints + bonus);
+      setQuizStage('upload');
+      setUploadedFile(null);
+    } catch (error) {
+      console.error('Stake all failed:', error);
+      alert('Failed to stake all points. Please try again.');
+    }
   };
   
   const getPlantEmoji = () => {

@@ -103,13 +103,44 @@ function HealthPage() {
     setPoints(0);
     setDistance(0);
     setSteps(0);
-    // TODO: Sign transaction to start workout
   };
   
-  const endWorkout = () => {
+  const endWorkout = async () => {
     setIsTracking(false);
     setWorkoutStage('complete');
-    // TODO: Sign transaction to claim points
+    
+    // Call backend to record workout on-chain
+    try {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      const response = await fetch(`${backendUrl}/api/workout/record`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userAddress: address,
+          exerciseType: selectedExercise,
+          duration: elapsedTime,
+          gpsData: selectedExercise === 'walking' || selectedExercise === 'running' 
+            ? [{ lat: 0, lng: 0, timestamp: Date.now() }] // Mock GPS data
+            : [],
+          distance,
+          speed,
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        console.error('Workout recording failed:', data.error);
+        alert(`Failed to record workout: ${data.message || data.error}`);
+      } else {
+        console.log('Workout recorded:', data);
+        // Refetch stake info to update plant status
+        refetchStake();
+      }
+    } catch (error) {
+      console.error('Error recording workout:', error);
+      alert('Failed to record workout. Please try again.');
+    }
   };
   
   const resetWorkout = () => {
@@ -124,27 +155,30 @@ function HealthPage() {
   
   const hasStake = stakeInfo && stakeInfo[0] > BigInt(0);
   const stakedAmount = hasStake ? formatUnits(stakeInfo[0], 18) : '0';
-  const currentStreak = hasStake ? Number(stakeInfo[2]) : 0;
-  const stakeDuration = hasStake ? Number(stakeInfo[1]) : 0;
-  const status = hasStake ? stakeInfo[3] : PlantStatus.Active;
-  const accumulatedRewards = hasStake ? formatUnits(stakeInfo[4], 18) : '0';
+  const accumulatedPoints = hasStake ? Number(stakeInfo[1]) : 0; // Points from contract
+  const duration = hasStake ? Number(stakeInfo[2]) : 0;
+  const currentStreak = hasStake ? Number(stakeInfo[3]) : 0;
+  const status = hasStake ? stakeInfo[4] : PlantStatus.Seed;
+  const lastActivity = hasStake ? Number(stakeInfo[5]) : 0;
   
   const getPlantEmoji = () => {
     if (!hasStake) return '🌱';
     if (status === PlantStatus.Withered) return '🥀';
+    if (status === PlantStatus.Fruiting) return '🍎';
     if (status === PlantStatus.Mature) return '🌳';
-    const progress = stakeDuration > 0 ? currentStreak / stakeDuration : 0;
-    if (progress >= 0.8) return '🌲';
-    if (progress >= 0.5) return '🌿';
-    if (progress >= 0.3) return '🪴';
+    if (status === PlantStatus.Growing) return '🌿';
+    if (status === PlantStatus.Sprout) return '🪴';
     return '🌱';
   };
   
   const getStatusText = () => {
     if (!hasStake) return 'Plant Your First Seed';
     if (status === PlantStatus.Withered) return 'Withered - Restart Your Journey';
-    if (status === PlantStatus.Mature) return 'Mature Plant - Bearing Fruit!';
-    return `Growing (Day ${currentStreak}/${stakeDuration})`;
+    if (status === PlantStatus.Fruiting) return 'Fruiting - Ready to Harvest!';
+    if (status === PlantStatus.Mature) return 'Mature Plant';
+    if (status === PlantStatus.Growing) return 'Growing Strong';
+    if (status === PlantStatus.Sprout) return 'Sprouting';
+    return `Growing (Day ${currentStreak}/${duration})`;
   };
   
   const formatTime = (seconds: number) => {
@@ -519,7 +553,8 @@ function HealthPage() {
               {hasStake && (
                 <div className="space-y-2">
                   <p className="text-base text-slate-500">Streak: {currentStreak} days</p>
-                  <p className="text-base text-emerald-400 font-mono">Rewards: {parseFloat(accumulatedRewards).toFixed(4)} G$</p>
+                  <p className="text-base text-emerald-400 font-mono">Points: {accumulatedPoints}</p>
+                  <p className="text-xs text-slate-500">≈ {(accumulatedPoints * 0.1).toFixed(2)} G$</p>
                 </div>
               )}
             </div>
