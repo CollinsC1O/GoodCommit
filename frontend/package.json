@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@gooddollar/good-design": "^0.4.38",
+    "@goodsdks/citizen-sdk": "^1.2.3",
     "@rainbow-me/rainbowkit": "^2.2.10",
     "@tanstack/react-query": "^5.90.21",
     "next": "16.1.6",
