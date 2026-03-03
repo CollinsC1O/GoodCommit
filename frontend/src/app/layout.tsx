@@ -7,7 +7,7 @@ import NavBar from './components/NavBar'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: '🌱 GoodCommit | The Habit Garden',
+  title: 'GoodCommit | The Habit Garden',
   description: 'Stake on yourself, grow your Habit Plant, and earn G$ rewards',
 }
 
