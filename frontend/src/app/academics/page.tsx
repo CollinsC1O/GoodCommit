@@ -5,10 +5,8 @@ import { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import { useGToken } from '@/hooks/useGToken';
 import { useStaking } from '@/hooks/useStaking';
-import { useFaceVerification } from '@/hooks/useFaceVerification';
 import { HabitType, PlantStatus } from '@/config/abis';
 import { formatUnits } from 'viem';
-import FaceVerification from '@/components/FaceVerification';
 
 type QuizStage = 'upload' | 'quiz' | 'results' | 'options';
 type Question = {
@@ -31,7 +29,6 @@ function AcademicsPage() {
     stakePartialAndClaim,
     stakeAllPoints,
   } = useStaking(HabitType.Academics);
-  const { isVerified, isLoading: isVerificationLoading, markAsVerified } = useFaceVerification();
   
   // Quiz state
   const [quizStage, setQuizStage] = useState<QuizStage>('upload');
@@ -240,11 +237,6 @@ function AcademicsPage() {
   };
   return (
     <div className="max-w-6xl mx-auto px-6 py-8">
-      {/* Face Verification Modal */}
-      {isConnected && !isVerificationLoading && !isVerified && (
-        <FaceVerification onVerified={markAsVerified} />
-      )}
-      
       <Link href="/" className="text-sm font-medium text-slate-400 hover:text-white mb-8 inline-flex items-center gap-2 transition-colors">
         ← Back to Garden
       </Link>

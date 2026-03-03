@@ -5,10 +5,8 @@ import { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import { useGToken } from '@/hooks/useGToken';
 import { useStaking } from '@/hooks/useStaking';
-import { useFaceVerification } from '@/hooks/useFaceVerification';
 import { HabitType, PlantStatus } from '@/config/abis';
 import { formatUnits } from 'viem';
-import FaceVerification from '@/components/FaceVerification';
 
 type ExerciseType = 'walking' | 'running' | 'gym-squat' | 'gym-weights' | 'gym-cardio';
 type WorkoutStage = 'select' | 'active' | 'complete';
@@ -17,7 +15,6 @@ function HealthPage() {
   const { isConnected, address } = useAccount();
   const { balance, approveStaking, isApproving, isApproved } = useGToken();
   const { stakeInfo, plantSeed, isPlanting, isPlanted, refetchStake } = useStaking(HabitType.Health);
-  const { isVerified, isLoading: isVerificationLoading, markAsVerified } = useFaceVerification();
   
   // Staking state
   const [stakeDurationSeconds, setStakeDurationSeconds] = useState(0);
@@ -197,11 +194,6 @@ function HealthPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-8">
-      {/* Face Verification Modal */}
-      {isConnected && !isVerificationLoading && !isVerified && (
-        <FaceVerification onVerified={markAsVerified} />
-      )}
-      
       <Link href="/" className="text-sm font-medium text-slate-400 hover:text-white mb-8 inline-flex items-center gap-2 transition-colors">
         ← Back to Garden
       </Link>
@@ -294,12 +286,6 @@ function HealthPage() {
                   </button>
                 </div>
               </div>
-            </div>
-          ) : !isVerified ? (
-            <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-8 text-center">
-              <div className="text-6xl mb-4">🔐</div>
-              <h3 className="text-xl font-bold text-white mb-2">Verification Required</h3>
-              <p className="text-slate-400">Please complete Face Verification to continue</p>
             </div>
           ) : workoutStage === 'select' ? (
             <div className="space-y-6">
