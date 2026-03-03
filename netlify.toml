@@ -1,13 +1,10 @@
-# [build]
-#   base = "frontend"
-#   command = "npm install --legacy-peer-deps && npm run build"
-#   publish = ".next"
-
 [build]
 base = "frontend"
 command = "npm install --legacy-peer-deps && npm run build"
-publish = ".next"
 
 [build.environment]
 NPM_FLAGS = "--legacy-peer-deps"
 NODE_VERSION = "20"
+
+[[plugins]]
+package = "@netlify/plugin-nextjs"
