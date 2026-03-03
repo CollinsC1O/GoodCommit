@@ -255,12 +255,6 @@ function AcademicsPage() {
             <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-8 text-center">
               <p className="text-slate-400 mb-4">Connect your wallet to start learning</p>
             </div>
-          ) : !isVerified ? (
-            <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-8 text-center">
-              <div className="text-6xl mb-4">🔐</div>
-              <h3 className="text-xl font-bold text-white mb-2">Verification Required</h3>
-              <p className="text-slate-400">Please complete Face Verification to continue</p>
-            </div>
           ) : quizStage === 'upload' ? (
             <div className="space-y-6">
               <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6">
