@@ -23,9 +23,7 @@ Every habit you commit to becomes a living plant in your digital garden:
 4. **Harvest Rewards** - Convert accumulated points to G$ tokens, or stake them for bonus multipliers
 5. **Avoid Withering** - Miss days and watch your plant decay (40% daily point loss)
 
-## 🏗️ What We've Built
-
-### Three-Layer Architecture
+## 🏗️ Three-Layer Architecture
 
 #### 1. Smart Contracts (Celo Blockchain)
 
@@ -42,7 +40,7 @@ A sophisticated staking system with:
 - **Slashing System**: Failed commitments split 60% to UBI pool, 40% to reward treasury
 - **Dual Habit Types**: Separate tracking for Health (workouts) and Academics (quizzes)
 - **Plant Growth Stages**: Visual progression tied to point thresholds
-- **Comprehensive Testing**: 75+ test cases with 85% pass rate
+- **Comprehensive Testing**: 75+ test cases 
 
 **Key Features**:
 
@@ -97,15 +95,6 @@ Beautiful, responsive user interface:
 - Point accumulation visualization
 - Harvest options with clear bonus explanations
 
-### Documentation Suite
-
-We've created comprehensive documentation:
-
-- **Smart Contract Docs** (~20,000 words): Design philosophy, security analysis, mathematical proofs
-- **Backend Docs** (~12,000 words): API endpoints, validation logic, monitoring systems
-- **Frontend Docs** (~18,000 words): Component breakdowns, state management, UI/UX decisions
-- **Implementation Guides**: Step-by-step setup and deployment instructions
-
 ## 🎮 How It Works
 
 ### For Health & Fitness Users
@@ -155,37 +144,13 @@ Decayed points go to a reward pool, redistributed to active users. This creates:
 
 ```bash
 # Clone repository
-git clone <your-repo-url>
+git clone <https://github.com/CollinsC1O/GoodCommit.git>
 cd GoodCommit
 
 # Install all dependencies
 npm install --prefix frontend
 npm install --prefix backend
 npm install --prefix contracts
-```
-
-### Environment Setup
-
-**Contracts** (`contracts/.env`):
-
-```env
-PRIVATE_KEY=your_deployer_private_key
-```
-
-**Backend** (`backend/.env`):
-
-```env
-PORT=3001
-CONTRACT_ADDRESS=deployed_contract_address
-VERIFIER_PRIVATE_KEY=backend_verifier_key
-GOODDOLLAR_API_KEY=your_gooddollar_api_key
-```
-
-**Frontend** (`frontend/.env.local`):
-
-```env
-NEXT_PUBLIC_CONTRACT_ADDRESS=deployed_contract_address
-NEXT_PUBLIC_BACKEND_URL=http://localhost:3001
 ```
 
 ### Running the Application
@@ -264,7 +229,6 @@ npm run deploy:celo
 - ✅ Smart contracts deployed and tested (85% test coverage)
 - ✅ Backend API with workout/quiz validation
 - ✅ Frontend with wallet integration and face verification
-- ✅ Comprehensive documentation (50,000+ words)
 - ✅ Theme system with automatic light/dark mode
 - 🔄 Testnet deployment in progress
 - 🔄 Mobile optimization ongoing
@@ -284,6 +248,7 @@ npm run deploy:celo
 - 🔄 Deploy to Alfajores testnet
 - 🔄 Mobile-responsive optimizations
 - 🔄 Advanced quiz AI (GPT integration)
+- 🔄 GPS tracking
 - 🔄 Social features (leaderboards, friend challenges)
 
 ### Phase 3: Launch (Next 3 Months)
@@ -292,14 +257,14 @@ npm run deploy:celo
 - 📅 Mainnet deployment
 - 📅 Marketing campaign
 - 📅 Community building
-- 📅 Partnership with fitness/education platforms
+- 📅 Partnership with fitness/education platforms and institutions
 
 ### Phase 4: Scale
 
 - 📅 Additional habit categories (meditation, reading, coding)
 - 📅 NFT plant collections
 - 📅 Multiplayer gardens (family/team challenges)
-- 📅 Integration with wearables (Fitbit, Apple Watch)
+- 📅 Integration with wearables (Fitbit, Apple Watch, Oraimo Watch)
 
 ## 🤝 Contributing
 
@@ -311,20 +276,19 @@ We welcome contributions! Areas where you can help:
 - **Testing**: More test coverage, edge case discovery
 - **Documentation**: Tutorials, guides, translations
 
-## 📚 Documentation
-
-- **Smart Contract**: `contracts/SMART_CONTRACT_DOCUMENTATION.md`
-- **Backend API**: `backend/BACKEND_DOCUMENTATION.md`
-- **Frontend**: `frontend/FRONTEND_DOCUMENTATION.md`
-- **Complete Guide**: `COMPLETE_IMPLEMENTATION_GUIDE.md`
-
 ## 🔗 Links & Resources
+
+- **Our-App (GoodCommit)**: https://good-commit.netlify.app/
 
 - **GoodDollar**: https://gooddollar.org
 - **GoodBuilders Program**: https://ubi.gd/goodbuilders
 - **Celo Network**: https://celo.org
-- **G$ Token**: `0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A`
 - **Celo Explorer**: https://explorer.celo.org
+
+## Address
+
+- **G$ Token**: `0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A`
+
 
 ## 📄 License
 
@@ -344,5 +308,5 @@ Special thanks to:
 
 **Built with 💚 for the GoodDollar ecosystem**
 
-_"The best time to plant a tree was 20 years ago. The second best time is now."_
+_"The best time to plant a tree was 20 years ago. The second best time is now."_ 
 Built with 💚 for the GoodDollar ecosystem
