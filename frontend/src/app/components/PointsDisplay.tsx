@@ -4,7 +4,7 @@ import { useGToken } from '@/hooks/useGToken';
 import { useAccount } from 'wagmi';
 import { useEffect, useState } from 'react';
 
-export default function GTokenBalance() {
+export default function PointsDisplay() {
   const [mounted, setMounted] = useState(false);
   const { isConnected } = useAccount();
   const { balance } = useGToken();
@@ -16,7 +16,7 @@ export default function GTokenBalance() {
   if (!mounted) {
     return (
       <div className="px-4 py-1.5 rounded-full bg-slate-800/80 border border-white/5 flex items-center gap-2">
-        <span className="text-sm font-medium text-slate-500">-- G$</span>
+        <span className="text-sm font-medium text-slate-500">0.00 G$</span>
       </div>
     );
   }
@@ -24,7 +24,7 @@ export default function GTokenBalance() {
   if (!isConnected) {
     return (
       <div className="px-4 py-1.5 rounded-full bg-slate-800/80 border border-white/5 flex items-center gap-2">
-        <span className="text-sm font-medium text-slate-500">-- G$</span>
+        <span className="text-sm font-medium text-slate-500">0.00 G$</span>
       </div>
     );
   }

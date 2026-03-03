@@ -1,7 +1,8 @@
 "use client";
 
 import WalletConnectButton from './WalletConnectButton';
-import GTokenBalance from './GTokenBalance';
+import PointsDisplay from './PointsDisplay';
+import AccumulatedPoints from './AccumulatedPoints';
 
 export default function NavBar() {
   return (
@@ -16,8 +17,9 @@ export default function NavBar() {
           </span>
         </div>
         
-        <div className="flex items-center gap-4">
-          <GTokenBalance />
+        <div className="flex items-center gap-3">
+          <AccumulatedPoints />
+          <PointsDisplay />
           <WalletConnectButton />
         </div>
       </div>
