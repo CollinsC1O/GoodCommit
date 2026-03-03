@@ -238,3 +238,7 @@ export enum PlantStatus {
   Withered = 5,
   Harvested = 6,
 }
+
+// Contract addresses - Use environment variables
+export const STAKING_CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_STAKING_CONTRACT_ADDRESS || '0x0000000000000000000000000000000000000000') as `0x${string}`;
+export const G_TOKEN_ADDRESS = (process.env.NEXT_PUBLIC_G_TOKEN_ADDRESS || '0x0000000000000000000000000000000000000000') as `0x${string}`;
