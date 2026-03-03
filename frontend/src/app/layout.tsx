@@ -7,7 +7,7 @@ import NavBar from './components/NavBar'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'GoodCommit | The Habit Garden',
+  title: '🌱 GoodCommit | The Habit Garden',
   description: 'Stake on yourself, grow your Habit Plant, and earn G$ rewards',
 }
 
@@ -18,6 +18,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+      </head>
       <body className={`${inter.className} min-h-screen overflow-x-hidden transition-colors duration-300`}>
         {/* Background gradients that respond to system theme */}
         <div className="fixed inset-0 z-0 bg-slate-50 dark:bg-slate-950 transition-colors duration-300">

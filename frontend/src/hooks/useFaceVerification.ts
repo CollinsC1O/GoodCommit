@@ -15,17 +15,22 @@ export function useFaceVerification() {
       return;
     }
 
-    // Check if user is already verified
+    // Check if user is already verified or skipped
     const verified = localStorage.getItem(`fv_verified_${address}`);
     const timestamp = localStorage.getItem(`fv_timestamp_${address}`);
     
-    if (verified === 'true' && timestamp) {
-      // Optional: Check if verification is still valid (e.g., within 30 days)
-      const verifiedDate = parseInt(timestamp);
-      const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
-      const isStillValid = Date.now() - verifiedDate < thirtyDaysInMs;
-      
-      setIsVerified(isStillValid);
+    if (verified && timestamp) {
+      if (verified === 'skipped') {
+        // Allow skipped users to proceed but mark as not fully verified
+        setIsVerified(true); // Allow access but could add a flag for partial verification
+      } else if (verified === 'true') {
+        // Optional: Check if verification is still valid (e.g., within 30 days)
+        const verifiedDate = parseInt(timestamp);
+        const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
+        const isStillValid = Date.now() - verifiedDate < thirtyDaysInMs;
+        
+        setIsVerified(isStillValid);
+      }
     } else {
       setIsVerified(false);
     }
