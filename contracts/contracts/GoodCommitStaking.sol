@@ -203,7 +203,9 @@ contract GoodCommitStaking is ReentrancyGuard, Pausable, Ownable {
         stake.stakedAmount += amount;
         totalStakedByUser[msg.sender] += amount;
         
+        // get user profile
         UserProfile storage profile = userProfiles[msg.sender];
+        // if user profile does not exist then initialize a profile
         if (!profile.initialized) {
             profile.initialized = true;
         }
@@ -612,7 +614,7 @@ contract GoodCommitStaking is ReentrancyGuard, Pausable, Ownable {
     /**
      * @dev Slash stake for cheating or inactivity (admin/verifier only)
      */
-    function slashStake(address user, HabitType habitType, string calldata reason) external onlyVerifier {
+    function slashStake(address user, HabitType habitType, string calldata /* reason */) external onlyVerifier {
         HabitStake storage stake = userStakes[user][habitType];
         require(stake.exists, "No stake found");
         require(stake.status != PlantStatus.Withered, "Already withered");

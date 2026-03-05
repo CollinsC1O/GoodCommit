@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAccount, usePublicClient, useWalletClient } from 'wagmi';
 import { IdentitySDK } from '@goodsdks/citizen-sdk';
 
@@ -8,167 +8,207 @@ interface FaceVerificationProps {
   onVerified: () => void;
 }
 
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+
+/**
+ * Polls the backend /api/verify/status/:address endpoint (on-chain read)
+ * until verified is true, or we exhaust maxAttempts.
+ */
+async function waitForOnChainVerification(
+  address: string,
+  maxAttempts = 20,
+  intervalMs = 3000
+): Promise<boolean> {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/verify/status/${address}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.verified === true) return true;
+      }
+    } catch {
+      // Network hiccup — keep polling
+    }
+    if (i < maxAttempts - 1) {
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+  }
+  return false;
+}
+
 export default function FaceVerification({ onVerified }: FaceVerificationProps) {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
+
   const [isVerifying, setIsVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isCheckingStatus, setIsCheckingStatus] = useState(true);
   const [identitySDK, setIdentitySDK] = useState<IdentitySDK | null>(null);
+  const [statusMessage, setStatusMessage] = useState('Checking verification status...');
 
-  // Initialize SDK when clients are available
+  // Prevent double-invocations from StrictMode / re-renders
+  const verificationInProgress = useRef(false);
+
+  // ── Initialise the GoodDollar SDK ──────────────────────────────────────────
   useEffect(() => {
-    const initSDK = async () => {
-      if (publicClient && walletClient) {
-        try {
-          const sdk = await IdentitySDK.init({
-            publicClient: publicClient as any,
-            walletClient: walletClient as any,
-            env: 'production',
-          });
-          setIdentitySDK(sdk);
-        } catch (err) {
-          console.error('Error initializing Identity SDK:', err);
-          setError('Failed to initialize verification SDK');
-        }
-      }
-    };
-    
-    initSDK();
+    if (!publicClient || !walletClient) return;
+
+    IdentitySDK.init({
+      publicClient: publicClient as any,
+      walletClient: walletClient as any,
+      env: 'production',
+    })
+      .then(setIdentitySDK)
+      .catch((err) => {
+        console.error('IdentitySDK init error:', err);
+        setError('Failed to initialise verification SDK');
+      });
   }, [publicClient, walletClient]);
 
-  // Check verification status on mount
+  // ── On mount: ask the backend whether this address is already verified ─────
   useEffect(() => {
-    const checkVerificationStatus = async () => {
-      if (!address || !isConnected || !identitySDK) {
-        setIsCheckingStatus(false);
-        return;
-      }
+    if (!address || !isConnected) {
+      setIsCheckingStatus(false);
+      return;
+    }
 
-      try {
-        // Check if address is whitelisted (verified)
-        const { isWhitelisted } = await identitySDK.getWhitelistedRoot(address);
-        
-        if (isWhitelisted) {
-          // Store verification status
-          localStorage.setItem(`fv_verified_${address}`, 'true');
-          localStorage.setItem(`fv_timestamp_${address}`, Date.now().toString());
+    let cancelled = false;
+
+    fetch(`${BACKEND_URL}/api/verify/status/${address}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled && data.verified) {
           onVerified();
-          return;
         }
-      } catch (err) {
-        console.error('Error checking verification status:', err);
-      } finally {
-        setIsCheckingStatus(false);
-      }
+      })
+      .catch(() => {
+        // Backend unreachable — let user try manually
+      })
+      .finally(() => {
+        if (!cancelled) setIsCheckingStatus(false);
+      });
+
+    return () => {
+      cancelled = true;
     };
+  }, [address, isConnected, onVerified]);
 
-    checkVerificationStatus();
-  }, [address, isConnected, identitySDK, onVerified]);
-
+  // ── Start GoodDollar face-verification popup ───────────────────────────────
   const handleVerification = async () => {
     if (!address || !isConnected || !identitySDK) {
       setError('Please connect your wallet first');
       return;
     }
+    if (verificationInProgress.current) return;
 
+    verificationInProgress.current = true;
     setIsVerifying(true);
     setError(null);
 
     try {
-      // Generate face verification link using SDK
       const callbackUrl = window.location.origin + window.location.pathname;
-      const popupMode = true;
-      const chainId = 42220; // Celo mainnet
-      
-      const verificationLink = await identitySDK.generateFVLink(popupMode, callbackUrl, chainId);
-      
-      // Open verification in popup
+      const verificationLink = await identitySDK.generateFVLink(
+        true,        // popup mode
+        callbackUrl,
+        42220        // Celo mainnet chainId
+      );
+
       const width = 500;
       const height = 700;
-      const left = window.screen.width / 2 - width / 2;
-      const top = window.screen.height / 2 - height / 2;
-      
+      const left = Math.round(window.screen.width / 2 - width / 2);
+      const top = Math.round(window.screen.height / 2 - height / 2);
+
       const popup = window.open(
         verificationLink,
         'GoodDollar Face Verification',
         `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,resizable=yes`
       );
-      
+
       if (!popup) {
-        setError('Please allow popups for this site. Check your browser settings.');
+        setError('Please allow pop-ups for this site in your browser settings.');
         setIsVerifying(false);
+        verificationInProgress.current = false;
         return;
       }
 
-      // Monitor popup closure
-      const checkPopupClosed = setInterval(() => {
-        if (popup.closed) {
-          clearInterval(checkPopupClosed);
-          
-          // Check if verification was completed
-          setTimeout(async () => {
-            try {
-              // Re-check whitelist status
-              const { isWhitelisted } = await identitySDK.getWhitelistedRoot(address);
-              
-              if (isWhitelisted) {
-                localStorage.setItem(`fv_verified_${address}`, 'true');
-                localStorage.setItem(`fv_timestamp_${address}`, Date.now().toString());
-                setIsVerifying(false);
-                setError(null);
-                onVerified();
-              } else if (isVerifying) {
-                setError('Verification window was closed. Please complete verification to continue.');
-                setIsVerifying(false);
-              }
-            } catch (err) {
-              console.error('Error re-checking verification:', err);
-              if (isVerifying) {
-                setError('Could not verify status. Please try again.');
-                setIsVerifying(false);
-              }
-            }
-          }, 2000);
+      // ── Watch for popup closure ────────────────────────────────────────────
+      const watchPopup = setInterval(async () => {
+        if (!popup.closed) return;
+
+        clearInterval(watchPopup);
+
+        // GoodDollar's whitelist update is async — poll the backend until it
+        // propagates on-chain (or we time out after ~60 seconds).
+        setStatusMessage(
+          'Verifying on-chain… this may take up to 60 seconds.'
+        );
+
+        const verified = await waitForOnChainVerification(address);
+
+        if (verified) {
+          setIsVerifying(false);
+          verificationInProgress.current = false;
+          onVerified();
+        } else {
+          setError(
+            'Verification could not be confirmed on-chain. ' +
+              'Please complete the full verification in the popup and try again.'
+          );
+          setIsVerifying(false);
+          verificationInProgress.current = false;
         }
       }, 500);
 
-      // Cleanup after 10 minutes
+      // Safety timeout — close popup and stop polling after 10 minutes
       setTimeout(() => {
-        clearInterval(checkPopupClosed);
-        if (popup && !popup.closed) {
-          popup.close();
-        }
-        if (isVerifying) {
+        clearInterval(watchPopup);
+        if (!popup.closed) popup.close();
+        if (verificationInProgress.current) {
           setError('Verification timed out. Please try again.');
           setIsVerifying(false);
+          verificationInProgress.current = false;
         }
       }, 10 * 60 * 1000);
-
     } catch (err: any) {
       console.error('Verification error:', err);
       setError(err.message || 'Failed to start verification. Please try again.');
       setIsVerifying(false);
+      verificationInProgress.current = false;
     }
   };
 
+  // ── Loading spinner while we check existing status ─────────────────────────
   if (isCheckingStatus) {
     return (
       <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50">
         <div className="bg-slate-900 border border-white/10 rounded-3xl p-8 max-w-md">
           <div className="flex items-center justify-center gap-3">
             <svg className="animate-spin h-8 w-8 text-green-400" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+                fill="none"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              />
             </svg>
-            <span className="text-white font-medium">Checking verification...</span>
+            <span className="text-white font-medium">Checking verification status…</span>
           </div>
         </div>
       </div>
     );
   }
 
+  // ── Main modal ─────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-slate-900 border border-white/10 rounded-3xl max-w-md w-full p-8 shadow-2xl">
@@ -178,28 +218,24 @@ export default function FaceVerification({ onVerified }: FaceVerificationProps) 
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">Verification Required</h2>
           <p className="text-slate-400 text-sm">
-            Complete Face Verification to access GoodCommit. This prevents bots and ensures fair play.
+            Complete GoodDollar Face Verification to access GoodCommit. This prevents bots and
+            ensures fair play.
           </p>
         </div>
 
         <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-6 mb-6">
           <div className="space-y-3 text-sm">
-            <div className="flex items-start gap-3">
-              <span className="text-green-400 mt-0.5">✓</span>
-              <span className="text-slate-300">One unique human = one account</span>
-            </div>
-            <div className="flex items-start gap-3">
-              <span className="text-green-400 mt-0.5">✓</span>
-              <span className="text-slate-300">Prevents bot exploitation</span>
-            </div>
-            <div className="flex items-start gap-3">
-              <span className="text-green-400 mt-0.5">✓</span>
-              <span className="text-slate-300">Powered by GoodDollar protocol</span>
-            </div>
-            <div className="flex items-start gap-3">
-              <span className="text-green-400 mt-0.5">✓</span>
-              <span className="text-slate-300">Your privacy is protected</span>
-            </div>
+            {[
+              'One unique human = one account',
+              'Prevents bot exploitation',
+              'Powered by GoodDollar protocol',
+              'Your privacy is protected',
+            ].map((item) => (
+              <div key={item} className="flex items-start gap-3">
+                <span className="text-green-400 mt-0.5">✓</span>
+                <span className="text-slate-300">{item}</span>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -217,10 +253,22 @@ export default function FaceVerification({ onVerified }: FaceVerificationProps) 
           {isVerifying ? (
             <span className="flex items-center justify-center gap-2">
               <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                  fill="none"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                />
               </svg>
-              Waiting for Verification...
+              Waiting for Verification…
             </span>
           ) : (
             'Start Face Verification'
@@ -229,9 +277,7 @@ export default function FaceVerification({ onVerified }: FaceVerificationProps) 
 
         {isVerifying && (
           <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
-            <p className="text-xs text-blue-300 text-center">
-              Complete verification in the popup window. This page will update automatically.
-            </p>
+            <p className="text-xs text-blue-300 text-center">{statusMessage}</p>
           </div>
         )}
 
