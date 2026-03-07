@@ -1,0 +1,16 @@
+{
+  "network": "hardhat",
+  "chainId": "31337",
+  "contracts": {
+    "GoodCommitStaking": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    "GToken": "0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A"
+  },
+  "addresses": {
+    "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+    "ubiPool": "0xDfbBf684c0277cF6B680bC3B5C14FACAad429873",
+    "rewardTreasury": "0x95D1ebdFFe5eb6DB25905Bb8953dF1570a6B8397",
+    "verifier": "0x95D1ebdFFe5eb6DB25905Bb8953dF1570a6B8397"
+  },
+  "timestamp": "2026-03-05T18:06:09.642Z",
+  "blockNumber": 1
+}

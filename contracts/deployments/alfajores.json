@@ -1,0 +1,16 @@
+{
+  "network": "alfajores",
+  "chainId": "44787",
+  "contracts": {
+    "GoodCommitStaking": "0x0C6A7E2D57ac78F63a1A8a7fC2CeE4840CD451BD",
+    "GToken": "0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A"
+  },
+  "addresses": {
+    "deployer": "YOUR_WALLET_ADDRESS",
+    "ubiPool": "YOUR_WALLET_ADDRESS",
+    "rewardTreasury": "YOUR_WALLET_ADDRESS",
+    "verifier": "YOUR_WALLET_ADDRESS"
+  },
+  "timestamp": "2026-03-06T14:24:00.000Z",
+  "deploymentDate": "March 6, 2026"
+}

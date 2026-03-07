@@ -1,0 +1,16 @@
+{
+  "network": "alfajores",
+  "chainId": "11142220",
+  "contracts": {
+    "GoodCommitStaking": "0x0C6A7E2D57ac78F63a1A8a7fC2CeE4840CD451BD",
+    "GToken": "0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A"
+  },
+  "addresses": {
+    "deployer": "0xDfbBf684c0277cF6B680bC3B5C14FACAad429873",
+    "ubiPool": "0xDfbBf684c0277cF6B680bC3B5C14FACAad429873",
+    "rewardTreasury": "0x95D1ebdFFe5eb6DB25905Bb8953dF1570a6B8397",
+    "verifier": "0x95D1ebdFFe5eb6DB25905Bb8953dF1570a6B8397"
+  },
+  "timestamp": "2026-03-05T18:16:18.841Z",
+  "blockNumber": 19450588
+}
