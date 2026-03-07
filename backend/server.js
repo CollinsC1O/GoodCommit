@@ -240,7 +240,7 @@ async function requireFaceVerification(req, res, next) {
   next();
 }
 
-// ==================== HEALTH CHECK ====================
+// ==================== HEALTH & FITNESS CHECK ====================
 
 app.get('/health', (req, res) => {
   res.json({
