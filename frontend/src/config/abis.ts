@@ -61,24 +61,7 @@ export const STAKING_ABI = [
   // Harvest options
   {
     inputs: [{ name: 'habitType', type: 'uint8' }],
-    name: 'claimAllPoints',
-    outputs: [],
-    stateMutability: 'nonpayable',
-    type: 'function',
-  },
-  {
-    inputs: [
-      { name: 'habitType', type: 'uint8' },
-      { name: 'pointsToStake', type: 'uint256' },
-    ],
-    name: 'stakePartialAndClaim',
-    outputs: [],
-    stateMutability: 'nonpayable',
-    type: 'function',
-  },
-  {
-    inputs: [{ name: 'habitType', type: 'uint8' }],
-    name: 'stakeAllPoints',
+    name: 'claimPoints',
     outputs: [],
     stateMutability: 'nonpayable',
     type: 'function',
@@ -86,8 +69,7 @@ export const STAKING_ABI = [
   // Unstake tokens (not points)
   {
     inputs: [
-      { name: 'habitType', type: 'uint8' },
-      { name: 'amount', type: 'uint256' },
+      { name: 'habitType', type: 'uint8' }
     ],
     name: 'unstakeTokens',
     outputs: [],

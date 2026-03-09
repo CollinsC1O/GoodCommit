@@ -1,701 +1,437 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./IGoodDollar.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
+
+// ── GoodDollar Identity interface ────────────────────────────────────────────
+// Production contract on Celo mainnet: 0xC361A6E67822a0EDc17D899227dd9FC50BD62F42
+// We use getWhitelistedRoot() so linked/connected wallets are handled correctly.
+interface IIdentity {
+    function getWhitelistedRoot(address account) external view returns (address);
+    function isWhitelisted(address account) external view returns (bool);
+}
 
 /**
  * @title GoodCommitStaking
- * @dev Comprehensive stake-to-improve contract for GoodCommit
- * Supports point accumulation, workout/quiz verification, flexible harvesting, and plant growth
+ * @notice Habit-staking contract for the GoodCommit dApp on Celo.
+ *
+ * Two entry points for users:
+ *   A) claimInitialSeed() — verified GoodDollar users claim 10 G$ once for free.
+ *      The contract checks GoodDollar Identity on-chain; no backend trust needed.
+ *   B) stakeGDollar()     — any wallet stakes their own G$ into a habit.
+ *
+ * Earned points decay 40%/day when inactive. Points convert to G$ at 10:1.
+ * Failed commitments: 60% → UBI pool, 40% → reward treasury.
  */
-contract GoodCommitStaking is ReentrancyGuard, Pausable, Ownable {
-    IGoodDollar public immutable gToken;
-    
-    // UBI pool address (where slashed funds go)
-    address public ubiPool;
-    
-    // Reward treasury (where successful user rewards come from)
-    address public rewardTreasury;
-    
-    // Backend verifier address (can submit workout/quiz results)
-    address public verifier;
-    
-    // Slashing distribution: 60% to UBI, 40% to reward pool
-    uint256 public constant UBI_SLASH_PERCENTAGE = 60;
-    uint256 public constant REWARD_POOL_PERCENTAGE = 40;
-    
-    // Initial seed amount for new users (10 G$ = 10 * 10^18)
-    uint256 public constant INITIAL_SEED_AMOUNT = 10 * 10**18;
-    
-    // Point conversion rate: 1 point = 0.1 G$ (10 points = 1 G$)
-    uint256 public constant POINTS_TO_GTOKEN_RATE = 10**17; // 0.1 G$
-    
-    // Staking bonus percentages
-    uint256 public constant STAKE_ALL_BONUS = 10; // 10% bonus for staking all
-    uint256 public constant STAKE_PARTIAL_BONUS = 5; // 5% bonus for partial stake
-    
-    // Withering/Decay settings
-    uint256 public constant DAILY_DECAY_PERCENTAGE = 40; // 40% points lost per missed day
-    uint256 public constant GRACE_PERIOD = 0; // No grace period - immediate decay
-    uint256 public constant COMPLETE_WITHER_DAYS = 8; // Days until all points lost (~8 days)
-    
-    // Reward pool for active users (accumulated from decayed points)
-    uint256 public decayRewardPool;
-    
-    enum HabitType { Health, Academics }
-    enum PlantStatus { Seed, Sprout, Growing, Mature, Fruiting, Withered, Harvested }
-    
-    // Plant growth thresholds (in points)
-    uint256 public constant SEED_THRESHOLD = 10;
-    uint256 public constant SPROUT_THRESHOLD = 30;
-    uint256 public constant GROWING_THRESHOLD = 60;
-    uint256 public constant MATURE_THRESHOLD = 90;
-    uint256 public constant FRUITING_THRESHOLD = 100;
-    
+contract GoodCommitStaking is ReentrancyGuard, Ownable, Pausable {
+    using SafeERC20 for IERC20;
+
+    // ── Constants ─────────────────────────────────────────────────────────────
+    uint256 public constant POINTS_PER_G_DOLLAR   = 10;      // 10 pts = 1 G$
+    uint256 public constant SEED_AMOUNT            = 10e18;   // 10 G$ (18 decimals)
+    uint256 public constant DECAY_RATE_BPS         = 4000;    // 40% daily decay
+    uint256 public constant SLASH_UBI_BPS          = 6000;    // 60% to UBI pool
+    uint256 public constant SLASH_TREASURY_BPS     = 4000;    // 40% to treasury
+    uint256 public constant PARTIAL_STAKE_BONUS_BPS = 500;    // +5% bonus
+    uint256 public constant FULL_STAKE_BONUS_BPS   = 1000;    // +10% bonus
+    uint256 public constant BPS_DENOMINATOR        = 10000;
+    uint256 public constant INACTIVITY_THRESHOLD   = 3 days;
+
+    // Plant growth thresholds (points)
+    uint256 public constant STAGE_SEED     = 0;
+    uint256 public constant STAGE_SPROUT   = 10;
+    uint256 public constant STAGE_GROWING  = 30;
+    uint256 public constant STAGE_MATURE   = 60;
+    uint256 public constant STAGE_FRUITING = 100;
+
+    // ── Enums ─────────────────────────────────────────────────────────────────
+    enum HabitType  { Health, Academics }
+    enum PlantStage { Seed, Sprout, Growing, Mature, Fruiting }
+
+    // ── Structs ───────────────────────────────────────────────────────────────
+    struct HabitStake {
+        uint256 stakedAmount;      // G$ currently staked (18 decimals)
+        uint256 points;            // accumulated points
+        uint256 lastActivityTime;  // unix timestamp of last recorded activity
+        uint256 commitmentEnd;     // unix timestamp when commitment expires
+        bool    active;            // true if stake is live
+    }
+
     struct UserProfile {
-        bool initialized;
-        bool hasClaimedSeed;
+        bool    initialized;
+        bool    hasClaimedSeed;
         uint256 totalPointsEarned;
         uint256 totalWorkoutsCompleted;
         uint256 totalQuizzesCompleted;
-        uint256 totalClaimed;
-        uint256 totalStaked;
+        uint256 totalClaimed;      // total G$ ever claimed out
+        uint256 totalStaked;       // cumulative G$ ever staked in
     }
-    
-    struct HabitStake {
-        address user;
-        HabitType habitType;
-        uint256 stakedAmount; // In G$ tokens
-        uint256 points; // Accumulated points
-        uint256 basePoints; // Points before decay calculation
-        uint256 duration; // in days (for time-based tracking)
-        uint256 startTime;
-        uint256 lastActivity;
-        uint256 lastDecayCheck; // Last time decay was calculated
-        uint256 currentStreak;
-        PlantStatus status;
-        bool exists;
-    }
-    
-    struct WorkoutResult {
-        uint256 timestamp;
-        uint256 duration; // in seconds
-        uint256 pointsEarned;
-        string exerciseType;
-        bool verified;
-    }
-    
-    struct QuizResult {
-        uint256 timestamp;
-        uint8 correctAnswers;
-        uint8 totalQuestions;
-        uint256 pointsEarned;
-        int256 pointsPenalty; // Can be negative
-        bool verified;
-    }
-    
-    // Mappings
-    mapping(address => UserProfile) public userProfiles;
-    mapping(address => mapping(HabitType => HabitStake)) public userStakes;
-    mapping(address => mapping(HabitType => WorkoutResult[])) public workoutHistory;
-    mapping(address => mapping(HabitType => QuizResult[])) public quizHistory;
-    mapping(address => uint256) public totalStakedByUser;
-    
-    // Track total slashed to UBI
-    uint256 public totalSlashedToUBI;
-    uint256 public totalSeedsDistributed;
-    
-    // Events
-    event SeedClaimed(address indexed user, uint256 amount);
-    event StakePlanted(address indexed user, HabitType habitType, uint256 amount, uint256 duration);
-    event PointsAdded(address indexed user, HabitType habitType, uint256 points, uint256 newTotal);
-    event PointsDeducted(address indexed user, HabitType habitType, uint256 points, uint256 newTotal);
-    event PointsDecayed(address indexed user, HabitType habitType, uint256 decayedPoints, uint256 daysMissed);
-    event DecayRewardPoolUpdated(uint256 newTotal);
-    event WorkoutRecorded(address indexed user, HabitType habitType, uint256 pointsEarned);
-    event QuizRecorded(address indexed user, HabitType habitType, uint256 pointsEarned, int256 penalty);
-    event PlantGrowthUpdated(address indexed user, HabitType habitType, PlantStatus newStatus);
-    event PlantWithering(address indexed user, HabitType habitType, uint256 daysInactive);
-    event PointsClaimed(address indexed user, HabitType habitType, uint256 amount);
-    event PointsStaked(address indexed user, HabitType habitType, uint256 amount, uint256 bonus);
-    event PartialStakeAndClaim(address indexed user, HabitType habitType, uint256 staked, uint256 claimed);
-    event StakeSlashed(address indexed user, HabitType habitType, uint256 slashedAmount);
-    event PlantWithered(address indexed user, HabitType habitType);
-    
+
+    // ── State ─────────────────────────────────────────────────────────────────
+    IERC20   public immutable gDollarToken;
+    IIdentity public immutable identityContract;
+
+    address public verifier;          // backend wallet — records workouts/quizzes
+    address public rewardTreasury;    // receives 40% of slashed stakes
+    address public ubiPool;           // receives 60% of slashed stakes
+    uint256 public decayRewardPool;   // accumulated decayed points pool (for redistribution)
+
+    mapping(address => UserProfile)                         public userProfiles;
+    mapping(address => mapping(HabitType => HabitStake))    public habitStakes;
+
+    // Prevent double-claim: track which GoodDollar root address has claimed
+    // (root = getWhitelistedRoot(user), so linked wallets share one seed)
+    mapping(address => bool) public rootHasClaimed;
+
+    // ── Events ────────────────────────────────────────────────────────────────
+    event SeedClaimed(address indexed user, address indexed gdRoot, uint256 amount);
+    event Staked(address indexed user, HabitType indexed habitType, uint256 amount, uint256 durationDays);
+    event WorkoutRecorded(address indexed user, uint256 points, string exerciseType);
+    event QuizRecorded(address indexed user, uint8 correct, uint8 total, uint256 pointsEarned);
+    event PointsDecayed(address indexed user, HabitType indexed habitType, uint256 decayedPoints);
+    event PointsClaimed(address indexed user, HabitType indexed habitType, uint256 gDollarPayout);
+    event Unstaked(address indexed user, HabitType indexed habitType, uint256 amount);
+    event StakeSlashed(address indexed user, HabitType indexed habitType, string reason, uint256 ubiAmount, uint256 treasuryAmount);
+    event VerifierUpdated(address indexed oldVerifier, address indexed newVerifier);
+    event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
+    event UbiPoolUpdated(address indexed oldPool, address indexed newPool);
+
+    // ── Modifiers ─────────────────────────────────────────────────────────────
     modifier onlyVerifier() {
-        require(msg.sender == verifier || msg.sender == owner(), "Not authorized verifier");
+        require(msg.sender == verifier, "GoodCommit: caller is not verifier");
         _;
     }
-    
+
+    // ── Constructor ───────────────────────────────────────────────────────────
     constructor(
-        address _gToken,
-        address _ubiPool,
+        address _gDollarToken,
+        address _identityContract,
+        address _verifier,
         address _rewardTreasury,
-        address _verifier
+        address _ubiPool
     ) Ownable(msg.sender) {
-        require(_gToken != address(0), "Invalid G$ token address");
-        require(_ubiPool != address(0), "Invalid UBI pool address");
-        require(_rewardTreasury != address(0), "Invalid reward treasury");
-        require(_verifier != address(0), "Invalid verifier address");
-        
-        gToken = IGoodDollar(_gToken);
-        ubiPool = _ubiPool;
-        rewardTreasury = _rewardTreasury;
-        verifier = _verifier;
+        require(_gDollarToken      != address(0), "Zero token");
+        require(_identityContract  != address(0), "Zero identity");
+        require(_verifier          != address(0), "Zero verifier");
+        require(_rewardTreasury    != address(0), "Zero treasury");
+        require(_ubiPool           != address(0), "Zero UBI pool");
+
+        gDollarToken      = IERC20(_gDollarToken);
+        identityContract  = IIdentity(_identityContract);
+        verifier          = _verifier;
+        rewardTreasury    = _rewardTreasury;
+        ubiPool           = _ubiPool;
     }
-    
+
+    // =========================================================================
+    // SEED CLAIM — identity verified on-chain, no backend trust needed
+    // =========================================================================
+
     /**
-     * @dev Claim initial seed amount (one-time per user)
+     * @notice Claim a one-time gift of 10 G$ for GoodDollar-verified users.
+     *
+     * Checks the GoodDollar Identity contract directly, so even if the user's
+     * MetaMask wallet (msg.sender) is different from their registered GoodDollar
+     * wallet, the linked-account lookup (getWhitelistedRoot) handles it correctly.
+     *
+     * The seed is transferred from the contract's own balance. Ensure the contract
+     * holds sufficient G$ before deployment (owner funds it via fundContract()).
      */
     function claimInitialSeed() external nonReentrant whenNotPaused {
-        UserProfile storage profile = userProfiles[msg.sender];
-        
-        if (!profile.initialized) {
-            profile.initialized = true;
-        }
-        
-        require(!profile.hasClaimedSeed, "Seed already claimed");
-        
-        profile.hasClaimedSeed = true;
-        totalSeedsDistributed += INITIAL_SEED_AMOUNT;
-        
-        // Transfer initial seed from treasury
-        require(gToken.transferFrom(rewardTreasury, msg.sender, INITIAL_SEED_AMOUNT), "Seed transfer failed");
-        
-        emit SeedClaimed(msg.sender, INITIAL_SEED_AMOUNT);
+        address user = msg.sender;
+
+        // ── 1. Resolve the GoodDollar root for this wallet ──────────────────
+        address gdRoot = identityContract.getWhitelistedRoot(user);
+        require(
+            gdRoot != address(0),
+            "GoodCommit: wallet not GoodDollar verified - visit gooddollar.org"
+        );
+
+        // ── 2. Prevent double-claim per GoodDollar identity ──────────────────
+        require(
+            !rootHasClaimed[gdRoot],
+            "GoodCommit: seed already claimed for this GoodDollar identity"
+        );
+
+        // ── 3. Also prevent the same Ethereum address from claiming twice ────
+        UserProfile storage profile = userProfiles[user];
+        require(!profile.hasClaimedSeed, "GoodCommit: seed already claimed");
+
+        // ── 4. Contract must hold enough G$ ──────────────────────────────────
+        require(
+            gDollarToken.balanceOf(address(this)) >= SEED_AMOUNT,
+            "GoodCommit: insufficient seed funds in contract"
+        );
+
+        // ── 5. Mark as claimed BEFORE transfer (re-entrancy guard + pattern) ─
+        rootHasClaimed[gdRoot]   = true;
+        profile.hasClaimedSeed   = true;
+        profile.initialized      = true;
+
+        // ── 6. Transfer seed G$ to the user ──────────────────────────────────
+        gDollarToken.safeTransfer(user, SEED_AMOUNT);
+
+        emit SeedClaimed(user, gdRoot, SEED_AMOUNT);
     }
-    
+
     /**
-     * @dev Plant a new habit seed by staking G$ (optional - can also just accumulate points)
+     * @notice Check whether a wallet is eligible for the seed (not yet claimed,
+     *         and GoodDollar-verified).
+     * @return eligible  true if they can claim
+     * @return gdRoot    the GoodDollar root address (zero if not verified)
+     * @return reason    human-readable reason if not eligible
      */
-    function plantSeed(
-        HabitType habitType,
-        uint256 amount,
-        uint256 durationInDays
-    ) external nonReentrant whenNotPaused {
-        require(amount > 0, "Stake amount must be > 0");
-        require(durationInDays >= 1, "Duration must be at least 1 day");
-        
-        HabitStake storage stake = userStakes[msg.sender][habitType];
-        
-        if (!stake.exists) {
-            // Create new stake
-            stake.user = msg.sender;
-            stake.habitType = habitType;
-            stake.stakedAmount = 0;
-            stake.points = 0;
-            stake.basePoints = 0;
-            stake.duration = durationInDays;
-            stake.startTime = block.timestamp;
-            stake.lastActivity = block.timestamp;
-            stake.lastDecayCheck = block.timestamp;
-            stake.currentStreak = 0;
-            stake.status = PlantStatus.Seed;
-            stake.exists = true;
-        }
-        
-        // Transfer G$ from user to contract
-        require(gToken.transferFrom(msg.sender, address(this), amount), "Transfer failed");
-        
-        stake.stakedAmount += amount;
-        totalStakedByUser[msg.sender] += amount;
-        
-        // get user profile
-        UserProfile storage profile = userProfiles[msg.sender];
-        // if user profile does not exist then initialize a profile
-        if (!profile.initialized) {
-            profile.initialized = true;
-        }
-        profile.totalStaked += amount;
-        
-        emit StakePlanted(msg.sender, habitType, amount, durationInDays);
-    }
-    
-    /**
-     * @dev Calculate and apply point decay for missed days
-     * This is called automatically before any point-related operation
-     * Simple 40% reduction per day missed, no grace period
-     */
-    function _applyDecay(address user, HabitType habitType) internal {
-        HabitStake storage stake = userStakes[user][habitType];
-        
-        if (!stake.exists || stake.points == 0) {
-            return;
-        }
-        
-        // Calculate days missed since last activity
-        uint256 timeSinceActivity = block.timestamp - stake.lastActivity;
-        uint256 daysMissed = timeSinceActivity / 1 days;
-        
-        if (daysMissed == 0) {
-            return;
-        }
-        
-        // Calculate decay: 40% loss per day (keep 60%)
-        uint256 decayedPoints = 0;
-        uint256 remainingPoints = stake.points;
-        
-        for (uint256 i = 0; i < daysMissed && i < COMPLETE_WITHER_DAYS; i++) {
-            uint256 dailyDecay = (remainingPoints * DAILY_DECAY_PERCENTAGE) / 100;
-            decayedPoints += dailyDecay;
-            remainingPoints -= dailyDecay;
-            
-            if (remainingPoints == 0) break;
-        }
-        
-        if (decayedPoints > 0) {
-            // Deduct decayed points
-            if (stake.points >= decayedPoints) {
-                stake.points -= decayedPoints;
-            } else {
-                decayedPoints = stake.points;
-                stake.points = 0;
-            }
-            
-            // Add decayed points to reward pool for active users
-            decayRewardPool += decayedPoints;
-            
-            emit PointsDecayed(user, habitType, decayedPoints, daysMissed);
-            emit DecayRewardPoolUpdated(decayRewardPool);
-            
-            // Update plant status based on remaining points
-            _updatePlantStatus(user, habitType);
-            
-            // If all points lost, mark as withered
-            if (stake.points == 0) {
-                stake.status = PlantStatus.Withered;
-                emit PlantWithered(user, habitType);
-            } else {
-                emit PlantWithering(user, habitType, daysMissed);
-            }
-        }
-        
-        stake.lastDecayCheck = block.timestamp;
-    }
-    
-    /**
-     * @dev Check decay status without applying it (view function)
-     */
-    function checkDecayStatus(address user, HabitType habitType) 
-        external 
-        view 
-        returns (
-            uint256 currentPoints,
-            uint256 pointsAfterDecay,
-            uint256 decayAmount,
-            uint256 daysMissed,
-            bool willWither
-        ) 
+    function checkSeedEligibility(address user)
+        external
+        view
+        returns (bool eligible, address gdRoot, string memory reason)
     {
-        HabitStake memory stake = userStakes[user][habitType];
-        
-        if (!stake.exists || stake.points == 0) {
-            return (0, 0, 0, 0, false);
+        gdRoot = identityContract.getWhitelistedRoot(user);
+
+        if (gdRoot == address(0)) {
+            return (false, address(0), "Wallet not GoodDollar verified");
         }
-        
-        uint256 timeSinceActivity = block.timestamp - stake.lastActivity;
-        daysMissed = timeSinceActivity / 1 days;
-        
-        if (daysMissed == 0) {
-            return (stake.points, stake.points, 0, 0, false);
+        if (rootHasClaimed[gdRoot]) {
+            return (false, gdRoot, "Seed already claimed for this identity");
         }
-        
-        // Calculate decay: 40% loss per day
-        uint256 remainingPoints = stake.points;
-        decayAmount = 0;
-        
-        for (uint256 i = 0; i < daysMissed && i < COMPLETE_WITHER_DAYS; i++) {
-            uint256 dailyDecay = (remainingPoints * DAILY_DECAY_PERCENTAGE) / 100;
-            decayAmount += dailyDecay;
-            remainingPoints -= dailyDecay;
-            
-            if (remainingPoints == 0) break;
+        if (userProfiles[user].hasClaimedSeed) {
+            return (false, gdRoot, "Seed already claimed by this address");
         }
-        
-        pointsAfterDecay = stake.points > decayAmount ? stake.points - decayAmount : 0;
-        willWither = pointsAfterDecay == 0;
-        
-        return (stake.points, pointsAfterDecay, decayAmount, daysMissed, willWither);
+        if (gDollarToken.balanceOf(address(this)) < SEED_AMOUNT) {
+            return (false, gdRoot, "Contract seed fund empty");
+        }
+        return (true, gdRoot, "Eligible");
     }
-    
+
+    // =========================================================================
+    // STAKING — open to all connected wallets (no identity check)
+    // =========================================================================
+
     /**
-     * @dev Record workout result and add points (called by backend verifier)
+     * @notice Stake your own G$ into a habit commitment.
+     * @param habitType     0 = Health, 1 = Academics
+     * @param amount        G$ amount to stake (in wei, i.e. with 18 decimals)
+     * @param durationDays  commitment period in days (1–365)
+     */
+    function stakeGDollar(
+        HabitType habitType,
+        uint256   amount,
+        uint256   durationDays
+    ) external nonReentrant whenNotPaused {
+        require(amount > 0,                           "GoodCommit: amount must be > 0");
+        require(durationDays >= 1 && durationDays <= 365, "GoodCommit: duration 1-365 days");
+
+        HabitStake storage stake = habitStakes[msg.sender][habitType];
+
+        // Pull G$ from user (requires prior ERC-20 approve)
+        gDollarToken.safeTransferFrom(msg.sender, address(this), amount);
+
+        stake.stakedAmount    += amount;
+        if (!stake.active) {
+            stake.points          = 0;
+            stake.active          = true;
+        }
+        stake.lastActivityTime = block.timestamp;
+        stake.commitmentEnd   = block.timestamp + (durationDays * 1 days);
+
+        UserProfile storage profile = userProfiles[msg.sender];
+        profile.initialized  = true;
+        profile.totalStaked  += amount;
+
+        emit Staked(msg.sender, habitType, amount, durationDays);
+    }
+
+    // =========================================================================
+    // ACTIVITY RECORDING — called by the verifier (backend wallet)
+    // =========================================================================
+
+    /**
+     * @notice Record a completed workout. Called by the backend after GPS/camera
+     *         validation. Awards 1 point per second of activity.
      */
     function recordWorkout(
-        address user,
+        address  user,
         HabitType habitType,
-        uint256 duration,
-        uint256 pointsEarned,
-        string calldata exerciseType
-    ) external onlyVerifier {
-        require(habitType == HabitType.Health, "Must be Health habit");
-        
-        HabitStake storage stake = userStakes[user][habitType];
-        
-        // Initialize stake if doesn't exist
-        if (!stake.exists) {
-            stake.user = user;
-            stake.habitType = habitType;
-            stake.stakedAmount = 0;
-            stake.points = 0;
-            stake.basePoints = 0;
-            stake.duration = 30; // Default 30 days
-            stake.startTime = block.timestamp;
-            stake.lastActivity = block.timestamp;
-            stake.lastDecayCheck = block.timestamp;
-            stake.currentStreak = 0;
-            stake.status = PlantStatus.Seed;
-            stake.exists = true;
-        } else {
-            // Apply decay before adding new points
-            _applyDecay(user, habitType);
-        }
-        
-        // Add points
-        stake.points += pointsEarned;
-        stake.basePoints += pointsEarned;
-        stake.lastActivity = block.timestamp;
-        stake.currentStreak++;
-        
-        // Update plant status based on points
-        _updatePlantStatus(user, habitType);
-        
-        // Record workout history
-        workoutHistory[user][habitType].push(WorkoutResult({
-            timestamp: block.timestamp,
-            duration: duration,
-            pointsEarned: pointsEarned,
-            exerciseType: exerciseType,
-            verified: true
-        }));
-        
-        // Update user profile
+        uint256  duration,      // seconds
+        uint256  pointsEarned,
+        string   calldata exerciseType
+    ) external onlyVerifier whenNotPaused {
+        require(duration > 0,      "GoodCommit: zero duration");
+        require(pointsEarned > 0,  "GoodCommit: zero points");
+
+        HabitStake storage stake = habitStakes[user][habitType];
+        require(stake.active, "GoodCommit: no active stake");
+
+        _applyDecay(user, habitType);
+
+        stake.points           += pointsEarned;
+        stake.lastActivityTime  = block.timestamp;
+
         UserProfile storage profile = userProfiles[user];
-        if (!profile.initialized) {
-            profile.initialized = true;
-        }
-        profile.totalPointsEarned += pointsEarned;
+        profile.totalPointsEarned    += pointsEarned;
         profile.totalWorkoutsCompleted++;
-        
-        emit PointsAdded(user, habitType, pointsEarned, stake.points);
-        emit WorkoutRecorded(user, habitType, pointsEarned);
+
+        emit WorkoutRecorded(user, pointsEarned, exerciseType);
     }
-    
+
     /**
-     * @dev Record quiz result and add/deduct points (called by backend verifier)
+     * @notice Record a completed quiz. Called by the backend after answer validation.
      */
     function recordQuiz(
-        address user,
+        address  user,
         HabitType habitType,
-        uint8 correctAnswers,
-        uint8 totalQuestions,
-        uint256 pointsEarned,
-        int256 pointsPenalty
-    ) external onlyVerifier {
-        require(habitType == HabitType.Academics, "Must be Academics habit");
-        require(totalQuestions > 0, "Invalid quiz");
-        
-        HabitStake storage stake = userStakes[user][habitType];
-        
-        // Initialize stake if doesn't exist
-        if (!stake.exists) {
-            stake.user = user;
-            stake.habitType = habitType;
-            stake.stakedAmount = 0;
-            stake.points = 0;
-            stake.basePoints = 0;
-            stake.duration = 30; // Default 30 days
-            stake.startTime = block.timestamp;
-            stake.lastActivity = block.timestamp;
-            stake.lastDecayCheck = block.timestamp;
-            stake.currentStreak = 0;
-            stake.status = PlantStatus.Seed;
-            stake.exists = true;
-        } else {
-            // Apply decay before adding new points
-            _applyDecay(user, habitType);
-        }
-        
-        // Add points or apply penalty
+        uint8    correctAnswers,
+        uint8    totalQuestions,
+        uint256  pointsEarned,
+        int256   pointsPenalty   // negative for wrong-answer penalty
+    ) external onlyVerifier whenNotPaused {
+        require(totalQuestions > 0, "GoodCommit: zero questions");
+
+        HabitStake storage stake = habitStakes[user][habitType];
+        require(stake.active, "GoodCommit: no active stake");
+
+        _applyDecay(user, habitType);
+
         if (pointsPenalty < 0) {
-            // Deduct points (but don't go below 0)
-            uint256 deduction = uint256(-pointsPenalty);
-            if (stake.points >= deduction) {
-                stake.points -= deduction;
-            } else {
-                stake.points = 0;
-            }
-            emit PointsDeducted(user, habitType, deduction, stake.points);
-        } else {
-            stake.points += pointsEarned;
-            stake.basePoints += pointsEarned;
-            emit PointsAdded(user, habitType, pointsEarned, stake.points);
+            uint256 penalty = uint256(-pointsPenalty);
+            stake.points = stake.points > penalty ? stake.points - penalty : 0;
         }
-        
-        stake.lastActivity = block.timestamp;
-        stake.currentStreak++;
-        
-        // Update plant status based on points
-        _updatePlantStatus(user, habitType);
-        
-        // Record quiz history
-        quizHistory[user][habitType].push(QuizResult({
-            timestamp: block.timestamp,
-            correctAnswers: correctAnswers,
-            totalQuestions: totalQuestions,
-            pointsEarned: pointsEarned,
-            pointsPenalty: pointsPenalty,
-            verified: true
-        }));
-        
-        // Update user profile
+
+        stake.points           += pointsEarned;
+        stake.lastActivityTime  = block.timestamp;
+
         UserProfile storage profile = userProfiles[user];
-        if (!profile.initialized) {
-            profile.initialized = true;
-        }
-        profile.totalPointsEarned += pointsEarned;
+        profile.totalPointsEarned    += pointsEarned;
         profile.totalQuizzesCompleted++;
-        
-        emit QuizRecorded(user, habitType, pointsEarned, pointsPenalty);
+
+        emit QuizRecorded(user, correctAnswers, totalQuestions, pointsEarned);
     }
-    
+
+    // =========================================================================
+    // HARVEST — convert points to G$ when plant reaches Fruiting (100+ pts)
+    // =========================================================================
+
     /**
-     * @dev Update plant status based on accumulated points
+     * @notice Claim your earned points.
+     *   Converts points to G$ and resets the plant to Seed stage.
+     *   Requires at least STAGE_FRUITING (100) points.
+     *   Blocks claims before the commitment period ends.
      */
-    function _updatePlantStatus(address user, HabitType habitType) internal {
-        HabitStake storage stake = userStakes[user][habitType];
-        PlantStatus oldStatus = stake.status;
-        PlantStatus newStatus;
-        
-        if (stake.points >= FRUITING_THRESHOLD) {
-            newStatus = PlantStatus.Fruiting;
-        } else if (stake.points >= MATURE_THRESHOLD) {
-            newStatus = PlantStatus.Mature;
-        } else if (stake.points >= GROWING_THRESHOLD) {
-            newStatus = PlantStatus.Growing;
-        } else if (stake.points >= SPROUT_THRESHOLD) {
-            newStatus = PlantStatus.Sprout;
-        } else {
-            newStatus = PlantStatus.Seed;
-        }
-        
-        if (newStatus != oldStatus) {
-            stake.status = newStatus;
-            emit PlantGrowthUpdated(user, habitType, newStatus);
-        }
-    }
-    
-    /**
-     * @dev Claim all points and convert to G$ tokens (resets to seed)
-     */
-    function claimAllPoints(HabitType habitType) external nonReentrant whenNotPaused {
-        HabitStake storage stake = userStakes[msg.sender][habitType];
-        require(stake.exists, "No stake found");
-        
-        // Apply decay before claiming
-        _applyDecay(msg.sender, habitType);
-        
-        require(stake.points > 0, "No points to claim");
-        
-        uint256 pointsToClaim = stake.points;
-        uint256 gTokenAmount = (pointsToClaim * POINTS_TO_GTOKEN_RATE) / 10**18;
-        
-        // Reset to seed state
-        stake.points = 0;
-        stake.basePoints = 0;
-        stake.status = PlantStatus.Seed;
-        stake.currentStreak = 0;
-        stake.lastActivity = block.timestamp;
-        stake.lastDecayCheck = block.timestamp;
-        
-        // Update profile
-        UserProfile storage profile = userProfiles[msg.sender];
-        profile.totalClaimed += gTokenAmount;
-        
-        // Transfer G$ from treasury
-        require(gToken.transferFrom(rewardTreasury, msg.sender, gTokenAmount), "Claim transfer failed");
-        
-        emit PointsClaimed(msg.sender, habitType, gTokenAmount);
-        emit PlantGrowthUpdated(msg.sender, habitType, PlantStatus.Seed);
-    }
-    
-    /**
-     * @dev Stake partial points and claim the rest
-     */
-    function stakePartialAndClaim(
-        HabitType habitType,
-        uint256 pointsToStake
+    function claimPoints(
+        HabitType habitType
     ) external nonReentrant whenNotPaused {
-        HabitStake storage stake = userStakes[msg.sender][habitType];
-        require(stake.exists, "No stake found");
-        
-        // Apply decay before staking/claiming
+        HabitStake storage stake = habitStakes[msg.sender][habitType];
+        require(stake.active,           "GoodCommit: no active stake");
+        require(stake.points >= STAGE_FRUITING, "GoodCommit: need 100+ points to claim");
+        require(block.timestamp >= stake.commitmentEnd, "GoodCommit: commitment period not ended yet");
+
         _applyDecay(msg.sender, habitType);
-        
-        require(stake.points > 0, "No points available");
-        require(pointsToStake > 0 && pointsToStake < stake.points, "Invalid stake amount");
-        
-        uint256 pointsToClaim = stake.points - pointsToStake;
-        
-        // Calculate bonus for staking (5%)
-        uint256 bonus = (pointsToStake * STAKE_PARTIAL_BONUS) / 100;
-        
-        // Convert claim points to G$
-        uint256 gTokenAmount = (pointsToClaim * POINTS_TO_GTOKEN_RATE) / 10**18;
-        
-        // Update stake
-        stake.points = pointsToStake + bonus;
-        stake.basePoints = pointsToStake + bonus;
-        stake.lastActivity = block.timestamp;
-        stake.lastDecayCheck = block.timestamp;
-        _updatePlantStatus(msg.sender, habitType);
-        
-        // Update profile
-        UserProfile storage profile = userProfiles[msg.sender];
-        profile.totalClaimed += gTokenAmount;
-        profile.totalStaked += (pointsToStake * POINTS_TO_GTOKEN_RATE) / 10**18;
-        
-        // Transfer claimed G$ from treasury
-        require(gToken.transferFrom(rewardTreasury, msg.sender, gTokenAmount), "Claim transfer failed");
-        
-        emit PartialStakeAndClaim(msg.sender, habitType, pointsToStake, pointsToClaim);
-        emit PointsStaked(msg.sender, habitType, pointsToStake, bonus);
-    }
-    
-    /**
-     * @dev Stake all points with 10% bonus
-     */
-    function stakeAllPoints(HabitType habitType) external nonReentrant whenNotPaused {
-        HabitStake storage stake = userStakes[msg.sender][habitType];
-        require(stake.exists, "No stake found");
-        
-        // Apply decay before staking
-        _applyDecay(msg.sender, habitType);
-        
-        require(stake.points > 0, "No points to stake");
-        
-        uint256 pointsToStake = stake.points;
-        
-        // Calculate bonus for staking all (10%)
-        uint256 bonus = (pointsToStake * STAKE_ALL_BONUS) / 100;
-        
-        // Update stake with bonus
-        stake.points = pointsToStake + bonus;
-        stake.basePoints = pointsToStake + bonus;
-        stake.lastActivity = block.timestamp;
-        stake.lastDecayCheck = block.timestamp;
-        _updatePlantStatus(msg.sender, habitType);
-        
-        // Update profile
-        UserProfile storage profile = userProfiles[msg.sender];
-        profile.totalStaked += (pointsToStake * POINTS_TO_GTOKEN_RATE) / 10**18;
-        
-        emit PointsStaked(msg.sender, habitType, pointsToStake, bonus);
-    }
-    
-    /**
-     * @dev Unstake G$ tokens (only staked amount, not points)
-     */
-    function unstakeTokens(HabitType habitType, uint256 amount) external nonReentrant {
-        HabitStake storage stake = userStakes[msg.sender][habitType];
-        require(stake.exists, "No stake found");
-        require(amount > 0 && amount <= stake.stakedAmount, "Invalid unstake amount");
-        
-        stake.stakedAmount -= amount;
-        totalStakedByUser[msg.sender] -= amount;
-        
-        // Return staked G$ tokens
-        require(gToken.transfer(msg.sender, amount), "Unstake transfer failed");
-    }
-    
-    /**
-     * @dev Slash stake for cheating or inactivity (admin/verifier only)
-     */
-    function slashStake(address user, HabitType habitType, string calldata /* reason */) external onlyVerifier {
-        HabitStake storage stake = userStakes[user][habitType];
-        require(stake.exists, "No stake found");
-        require(stake.status != PlantStatus.Withered, "Already withered");
-        require(stake.stakedAmount > 0, "No staked amount to slash");
-        
-        uint256 slashAmount = stake.stakedAmount;
-        
-        // Calculate distribution: 60% to UBI, 40% to reward pool
-        uint256 toUBI = (slashAmount * UBI_SLASH_PERCENTAGE) / 100;
-        uint256 toRewardPool = slashAmount - toUBI;
-        
-        // Transfer slashed funds
-        require(gToken.transfer(ubiPool, toUBI), "UBI transfer failed");
-        require(gToken.transfer(rewardTreasury, toRewardPool), "Reward pool transfer failed");
-        
-        totalSlashedToUBI += toUBI;
-        totalStakedByUser[user] -= stake.stakedAmount;
-        
-        // Wither the plant and reset
-        stake.status = PlantStatus.Withered;
-        stake.stakedAmount = 0;
+
+        uint256 pts    = stake.points;
+        uint256 payout = (pts * 1e18) / POINTS_PER_G_DOLLAR; // pts→G$
+
         stake.points = 0;
-        
-        emit StakeSlashed(user, habitType, slashAmount);
-        emit PlantWithered(user, habitType);
-    }
-    
-    /**
-     * @dev Check if user is inactive and should be slashed
-     */
-    function isInactive(address user, HabitType habitType) external view returns (bool) {
-        HabitStake memory stake = userStakes[user][habitType];
-        if (!stake.exists || stake.stakedAmount == 0) {
-            return false;
+
+        if (payout > 0) {
+            require(
+                gDollarToken.balanceOf(address(this)) >= payout,
+                "GoodCommit: insufficient contract balance for harvest"
+            );
+            gDollarToken.safeTransfer(msg.sender, payout);
+            userProfiles[msg.sender].totalClaimed += payout;
         }
-        // Inactive if no activity for 3 days
-        return block.timestamp > stake.lastActivity + 3 days;
+
+        emit PointsClaimed(msg.sender, habitType, payout);
     }
-    
+
     /**
-     * @dev Get user's stake info
+     * @notice Unstake your G$.
+     *   Allows users to withdraw their staked G$ anytime.
+     *   Unstaking exits the habit, preventing further points or activity until re-staking.
      */
-    function getStakeInfo(address user, HabitType habitType) 
-        external 
-        view 
-        returns (
-            uint256 stakedAmount,
-            uint256 points,
-            uint256 duration,
-            uint256 currentStreak,
-            PlantStatus status,
-            uint256 lastActivity
-        ) 
-    {
-        HabitStake memory stake = userStakes[user][habitType];
-        return (
-            stake.stakedAmount,
-            stake.points,
-            stake.duration,
-            stake.currentStreak,
-            stake.status,
-            stake.lastActivity
+    function unstakeTokens(HabitType habitType) external nonReentrant whenNotPaused {
+        HabitStake storage stake = habitStakes[msg.sender][habitType];
+        require(stake.active, "GoodCommit: no active stake");
+        require(stake.stakedAmount > 0, "GoodCommit: nothing to unstake");
+        
+        uint256 amount = stake.stakedAmount;
+        stake.stakedAmount = 0;
+        stake.active = false;
+        
+        gDollarToken.safeTransfer(msg.sender, amount);
+        emit Unstaked(msg.sender, habitType, amount);
+    }
+
+    // =========================================================================
+    // SLASHING — called by verifier for inactivity (3+ days)
+    // =========================================================================
+
+    /**
+     * @notice Slash an inactive user's stake.
+     *   60% → UBI pool
+     *   40% → reward treasury
+     */
+    function slashStake(
+        address   user,
+        HabitType habitType,
+        string    calldata reason
+    ) external onlyVerifier whenNotPaused {
+        HabitStake storage stake = habitStakes[user][habitType];
+        require(stake.active,      "GoodCommit: no active stake");
+        require(
+            block.timestamp >= stake.lastActivityTime + INACTIVITY_THRESHOLD,
+            "GoodCommit: user not inactive yet"
         );
+
+        uint256 amount     = stake.stakedAmount;
+        uint256 ubiAmount  = (amount * SLASH_UBI_BPS)      / BPS_DENOMINATOR;
+        uint256 treasuryAmt = (amount * SLASH_TREASURY_BPS) / BPS_DENOMINATOR;
+
+        // Reset stake
+        stake.active       = false;
+        stake.stakedAmount = 0;
+        stake.points       = 0;
+
+        if (ubiAmount > 0)   gDollarToken.safeTransfer(ubiPool,        ubiAmount);
+        if (treasuryAmt > 0) gDollarToken.safeTransfer(rewardTreasury, treasuryAmt);
+
+        emit StakeSlashed(user, habitType, reason, ubiAmount, treasuryAmt);
     }
-    
-    /**
-     * @dev Get decay reward pool balance
-     */
-    function getDecayRewardPool() external view returns (uint256) {
-        return decayRewardPool;
+
+    // =========================================================================
+    // INACTIVITY CHECK
+    // =========================================================================
+
+    function isInactive(address user, HabitType habitType) external view returns (bool) {
+        HabitStake storage stake = habitStakes[user][habitType];
+        if (!stake.active) return false;
+        return block.timestamp >= stake.lastActivityTime + INACTIVITY_THRESHOLD;
     }
-    
-    /**
-     * @dev Get user profile
-     */
-    function getUserProfile(address user) 
-        external 
-        view 
+
+    // =========================================================================
+    // VIEWS
+    // =========================================================================
+
+    function getPlantStage(address user, HabitType habitType)
+        external view returns (PlantStage)
+    {
+        uint256 pts = habitStakes[user][habitType].points;
+        if (pts >= STAGE_FRUITING) return PlantStage.Fruiting;
+        if (pts >= STAGE_MATURE)   return PlantStage.Mature;
+        if (pts >= STAGE_GROWING)  return PlantStage.Growing;
+        if (pts >= STAGE_SPROUT)   return PlantStage.Sprout;
+        return PlantStage.Seed;
+    }
+
+    function getUserProfile(address user)
+        external view
         returns (
-            bool initialized,
-            bool hasClaimedSeed,
+            bool    initialized,
+            bool    hasClaimedSeed,
             uint256 totalPointsEarned,
             uint256 totalWorkoutsCompleted,
             uint256 totalQuizzesCompleted,
@@ -703,127 +439,102 @@ contract GoodCommitStaking is ReentrancyGuard, Pausable, Ownable {
             uint256 totalStaked
         )
     {
-        UserProfile memory profile = userProfiles[user];
+        UserProfile storage p = userProfiles[user];
         return (
-            profile.initialized,
-            profile.hasClaimedSeed,
-            profile.totalPointsEarned,
-            profile.totalWorkoutsCompleted,
-            profile.totalQuizzesCompleted,
-            profile.totalClaimed,
-            profile.totalStaked
+            p.initialized,
+            p.hasClaimedSeed,
+            p.totalPointsEarned,
+            p.totalWorkoutsCompleted,
+            p.totalQuizzesCompleted,
+            p.totalClaimed,
+            p.totalStaked
         );
     }
-    
-    /**
-     * @dev Get workout history count
-     */
-    function getWorkoutCount(address user, HabitType habitType) external view returns (uint256) {
-        return workoutHistory[user][habitType].length;
-    }
-    
-    /**
-     * @dev Get quiz history count
-     */
-    function getQuizCount(address user, HabitType habitType) external view returns (uint256) {
-        return quizHistory[user][habitType].length;
-    }
-    
-    /**
-     * @dev Get specific workout result
-     */
-    function getWorkoutResult(address user, HabitType habitType, uint256 index)
-        external
-        view
+
+    function getHabitStake(address user, HabitType habitType)
+        external view
         returns (
-            uint256 timestamp,
-            uint256 duration,
-            uint256 pointsEarned,
-            string memory exerciseType,
-            bool verified
+            uint256 stakedAmount,
+            uint256 points,
+            uint256 lastActivityTime,
+            uint256 commitmentEnd,
+            bool    active
         )
     {
-        require(index < workoutHistory[user][habitType].length, "Invalid index");
-        WorkoutResult memory result = workoutHistory[user][habitType][index];
-        return (
-            result.timestamp,
-            result.duration,
-            result.pointsEarned,
-            result.exerciseType,
-            result.verified
-        );
+        HabitStake storage s = habitStakes[user][habitType];
+        return (s.stakedAmount, s.points, s.lastActivityTime, s.commitmentEnd, s.active);
     }
-    
+
+    function contractGDollarBalance() external view returns (uint256) {
+        return gDollarToken.balanceOf(address(this));
+    }
+
+    // =========================================================================
+    // INTERNAL
+    // =========================================================================
+
     /**
-     * @dev Get specific quiz result
+     * @dev Apply 40%/day point decay for each full day of inactivity.
+     *      Decayed points flow into the global decayRewardPool.
      */
-    function getQuizResult(address user, HabitType habitType, uint256 index)
-        external
-        view
-        returns (
-            uint256 timestamp,
-            uint8 correctAnswers,
-            uint8 totalQuestions,
-            uint256 pointsEarned,
-            int256 pointsPenalty,
-            bool verified
-        )
-    {
-        require(index < quizHistory[user][habitType].length, "Invalid index");
-        QuizResult memory result = quizHistory[user][habitType][index];
-        return (
-            result.timestamp,
-            result.correctAnswers,
-            result.totalQuestions,
-            result.pointsEarned,
-            result.pointsPenalty,
-            result.verified
-        );
+    function _applyDecay(address user, HabitType habitType) internal {
+        HabitStake storage stake = habitStakes[user][habitType];
+        if (stake.points == 0) return;
+
+        uint256 daysInactive = (block.timestamp - stake.lastActivityTime) / 1 days;
+        if (daysInactive == 0) return;
+
+        uint256 remaining = stake.points;
+        for (uint256 i = 0; i < daysInactive && remaining > 0; i++) {
+            uint256 decayed = (remaining * DECAY_RATE_BPS) / BPS_DENOMINATOR;
+            remaining -= decayed;
+        }
+
+        uint256 decayedTotal = stake.points - remaining;
+        decayRewardPool     += decayedTotal;
+        stake.points         = remaining;
+
+        emit PointsDecayed(user, habitType, decayedTotal);
     }
-    
+
+    // =========================================================================
+    // ADMIN
+    // =========================================================================
+
     /**
-     * @dev Convert points to G$ token amount
+     * @notice Fund the contract's G$ balance so it can pay out seed claims and harvests.
+     *         Caller must have approved this contract to spend their G$.
      */
-    function pointsToGToken(uint256 points) public pure returns (uint256) {
-        return (points * POINTS_TO_GTOKEN_RATE) / 10**18;
+    function fundContract(uint256 amount) external onlyOwner {
+        gDollarToken.safeTransferFrom(msg.sender, address(this), amount);
     }
-    
-    /**
-     * @dev Convert G$ token amount to points
-     */
-    function gTokenToPoints(uint256 amount) public pure returns (uint256) {
-        return (amount * 10**18) / POINTS_TO_GTOKEN_RATE;
-    }
-    
-    // Admin functions
-    function setUBIPool(address _ubiPool) external onlyOwner {
-        require(_ubiPool != address(0), "Invalid address");
-        ubiPool = _ubiPool;
-    }
-    
-    function setRewardTreasury(address _rewardTreasury) external onlyOwner {
-        require(_rewardTreasury != address(0), "Invalid address");
-        rewardTreasury = _rewardTreasury;
-    }
-    
+
     function setVerifier(address _verifier) external onlyOwner {
-        require(_verifier != address(0), "Invalid address");
+        require(_verifier != address(0), "Zero address");
+        emit VerifierUpdated(verifier, _verifier);
         verifier = _verifier;
     }
-    
-    function pause() external onlyOwner {
-        _pause();
+
+    function setRewardTreasury(address _treasury) external onlyOwner {
+        require(_treasury != address(0), "Zero address");
+        emit TreasuryUpdated(rewardTreasury, _treasury);
+        rewardTreasury = _treasury;
     }
-    
-    function unpause() external onlyOwner {
-        _unpause();
+
+    function setUbiPool(address _ubiPool) external onlyOwner {
+        require(_ubiPool != address(0), "Zero address");
+        emit UbiPoolUpdated(ubiPool, _ubiPool);
+        ubiPool = _ubiPool;
     }
-    
+
+    function pause()   external onlyOwner { _pause(); }
+    function unpause() external onlyOwner { _unpause(); }
+
     /**
-     * @dev Emergency withdraw (only owner, only when paused)
+     * @notice Emergency withdrawal of all G$ to owner (only while paused).
      */
-    function emergencyWithdraw(address token, uint256 amount) external onlyOwner whenPaused {
-        require(token != address(0), "Invalid token");
-        IGoodDollar(token).transfer(owner(), amount);
+    function emergencyWithdraw() external onlyOwner whenPaused {
+        uint256 bal = gDollarToken.balanceOf(address(this));
+        if (bal > 0) gDollarToken.safeTransfer(owner(), bal);
     }
 }

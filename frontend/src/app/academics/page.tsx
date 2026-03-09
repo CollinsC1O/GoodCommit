@@ -34,10 +34,37 @@ function AcademicsPage() {
     isPlanting,
     isPlanted,
     refetchStake,
-    claimAllPoints,
-    stakePartialAndClaim,
-    stakeAllPoints,
+    claimPoints,
+    isClaimingPoints,
+    isPointsClaimed,
+    unstakeTokens,
+    isUnstaking,
+    isUnstaked,
   } = useStaking(HabitType.Academics);
+
+  // Staking state
+  const [stakeDurationSeconds, setStakeDurationSeconds] = useState(0);
+  const [stakeDurationMinutes, setStakeDurationMinutes] = useState(0);
+  const [stakeDurationHours, setStakeDurationHours] = useState(168); // 7 days in hours
+  const [stakeAmount, setStakeAmount] = useState('500');
+
+  const handleApprove = async () => {
+    try {
+      await approveStaking(stakeAmount);
+    } catch (error) {
+      console.error('Approval failed:', error);
+    }
+  };
+  
+  const handlePlantSeed = async () => {
+    try {
+      const totalSeconds = stakeDurationSeconds + (stakeDurationMinutes * 60) + (stakeDurationHours * 3600);
+      const totalDays = Math.max(1, Math.ceil(totalSeconds / 86400));
+      await plantSeed(stakeAmount, totalDays);
+    } catch (error) {
+      console.error('Planting failed:', error);
+    }
+  };
 
   const [quizStage, setQuizStage] = useState<QuizStage>('upload');
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -194,6 +221,12 @@ function AcademicsPage() {
     setWrongAnswers(wrong);
     setNetPointsLastQuiz(netPoints);
 
+    if (!hasStake) {
+      console.log('User has no active stake; skipping on-chain submit.');
+      setQuizStage('results');
+      return;
+    }
+
     try {
       const answers = finalQuestions.map((q) => q.userAnswer ?? -1);
       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
@@ -224,10 +257,10 @@ function AcademicsPage() {
     setQuizStage('results');
   };
 
-  // ── Harvest actions ───────────────────────────────────────────────────────
-  const handleClaimAll = async () => {
+  // ── Harvest / Exit actions ────────────────────────────────────────────────
+  const handleClaimPoints = async () => {
     try {
-      await claimAllPoints();
+      await claimPoints();
       setQuizStage('upload');
       setUploadedFile(null);
       refetchStake();
@@ -237,27 +270,15 @@ function AcademicsPage() {
     }
   };
 
-  const handleStakeAndClaim = async (pointsToStake: number) => {
+  const handleUnstake = async () => {
     try {
-      await stakePartialAndClaim(BigInt(pointsToStake));
+      await unstakeTokens();
       setQuizStage('upload');
       setUploadedFile(null);
       refetchStake();
     } catch (error) {
-      console.error('Stake and claim failed:', error);
-      alert('Failed to stake and claim. Please try again.');
-    }
-  };
-
-  const handleStakeAll = async () => {
-    try {
-      await stakeAllPoints();
-      setQuizStage('upload');
-      setUploadedFile(null);
-      refetchStake();
-    } catch (error) {
-      console.error('Stake all failed:', error);
-      alert('Failed to stake all points. Please try again.');
+      console.error('Unstake failed:', error);
+      alert('Failed to unstake. Please try again.');
     }
   };
 
@@ -284,44 +305,142 @@ function AcademicsPage() {
               <p className="text-slate-400 mb-4">Connect your wallet to start learning</p>
             </div>
 
-          ) : quizStage === 'upload' ? (
-            <div className="space-y-6">
-              <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6">
-                <h3 className="text-xl font-bold text-white mb-4">Upload Study Material</h3>
+          ) : (
+            <div className="space-y-8">
+              {/* STAKING SECTION - Only shown if they haven't staked */}
+              {!hasStake && (
+                <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 relative z-10">
+                  <h3 className="text-xl font-bold text-white mb-4">Plant Your Seed (Stake G$)</h3>
+                  <p className="text-slate-400 text-sm mb-6">
+                    You must stake G$ to unlock the study portal, take quizzes, and earn points.
+                  </p>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-400 mb-2">Stake Duration (Hours)</label>
+                      <input
+                        type="number"
+                        value={stakeDurationHours}
+                        onChange={(e) => setStakeDurationHours(Number(e.target.value))}
+                        className="w-full bg-slate-950 border border-slate-800 text-white rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">Total Duration: {Math.max(1, Math.ceil(stakeDurationHours / 24))} days</p>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-slate-400 mb-2">Stake Amount</label>
+                      <input
+                        type="number"
+                        value={stakeAmount}
+                        onChange={(e) => setStakeAmount(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 text-white rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                      />
+                    </div>
+                    
+                    {!isApproved ? (
+                      <button
+                        onClick={handleApprove}
+                        disabled={isApproving}
+                        className="w-full bg-gradient-to-r from-purple-500 to-pink-600 text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50 hover:shadow-lg hover:shadow-purple-500/25"
+                      >
+                        {isApproving ? 'Approving...' : 'Approve G$'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handlePlantSeed}
+                        disabled={isPlanting}
+                        className="w-full bg-gradient-to-r from-purple-500 to-pink-600 text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50 hover:shadow-lg hover:shadow-purple-500/25"
+                      >
+                        {isPlanting ? 'Planting...' : 'Plant Seed 🌱'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* QUIZ SECTION / UPLOAD STATE */}
+              {quizStage === 'upload' ? (
+                <div className="space-y-6 relative">
+                  
+                  <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6">
+                    <h3 className="text-xl font-bold text-white mb-4">Start a Study Session</h3>
                 <p className="text-slate-400 text-sm mb-6">
-                  Upload a PDF document and we'll generate AI-powered quiz questions to test your knowledge.
+                  Choose how you want to be tested today.
                 </p>
 
-                <div className="border-2 border-dashed border-slate-700 rounded-xl p-8 text-center hover:border-purple-500/50 transition-all">
-                  <input type="file" accept=".pdf" onChange={handleFileUpload} className="hidden" id="pdf-upload" />
-                  <label htmlFor="pdf-upload" className="cursor-pointer">
-                    <div className="text-6xl mb-4">📄</div>
-                    <p className="text-white font-medium mb-2">
-                      {uploadedFile ? uploadedFile.name : 'Click to upload PDF'}
-                    </p>
-                    <p className="text-slate-500 text-sm">
-                      {uploadedFile ? 'File ready for quiz generation' : 'PDF files only, max 10MB'}
-                    </p>
-                  </label>
-                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* File Upload Option */}
+                  <div className="border border-slate-700 rounded-xl p-6 text-center hover:border-purple-500/50 transition-all bg-slate-950/50">
+                    <input type="file" accept=".pdf" onChange={handleFileUpload} className="hidden" id="pdf-upload" />
+                    <label htmlFor="pdf-upload" className="cursor-pointer block">
+                      <div className="text-4xl mb-3">📄</div>
+                      <h4 className="font-bold text-white mb-2">Upload PDF</h4>
+                      <p className="text-slate-500 text-xs mb-4">
+                        Max 10MB. We extract the text to generate your quiz.
+                      </p>
+                      
+                      {uploadedFile ? (
+                        <div className="bg-purple-500/10 border border-purple-500/30 text-purple-400 text-xs py-2 px-3 rounded-lg mb-4 truncate">
+                          {uploadedFile.name}
+                        </div>
+                      ) : (
+                        <div className="bg-slate-800 text-white text-xs py-2 px-3 rounded-lg mb-4 hover:bg-slate-700 transition">
+                          Browse Files
+                        </div>
+                      )}
+                    </label>
 
-                {uploadedFile && (
-                  <button
-                    onClick={generateQuiz}
-                    disabled={isGeneratingQuiz}
-                    className="w-full mt-6 bg-gradient-to-r from-purple-500 to-pink-600 text-white font-bold text-lg py-4 rounded-xl hover:shadow-lg hover:shadow-purple-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
-                  >
-                    {isGeneratingQuiz ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-                        </svg>
-                        Generating Quiz…
-                      </span>
-                    ) : 'Generate Quiz 🧠'}
-                  </button>
-                )}
+                    <button
+                      onClick={generateQuiz}
+                      disabled={isGeneratingQuiz || !uploadedFile || !hasStake}
+                      className="w-full bg-gradient-to-r from-purple-500 to-pink-600 text-white font-bold py-3 rounded-lg hover:shadow-lg transition-all disabled:opacity-50 text-sm"
+                    >
+                      {!hasStake ? 'Stake G$ to Unlock' : isGeneratingQuiz ? 'Extracting & Generating...' : 'Generate from PDF'}
+                    </button>
+                  </div>
+
+                  {/* Mock Quiz Option */}
+                  <div className="border border-slate-700 rounded-xl p-6 text-center hover:border-blue-500/50 transition-all bg-slate-950/50 flex flex-col">
+                    <div className="text-4xl mb-3">🤖</div>
+                    <h4 className="font-bold text-white mb-2">Try Mock Quiz</h4>
+                    <p className="text-slate-500 text-xs mb-auto">
+                      Don't have a PDF ready? Take a random 10-question general knowledge quiz to test the flow.
+                    </p>
+                    
+                    <button
+                      onClick={async () => {
+                        setIsGeneratingQuiz(true);
+                        try {
+                          const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+                          const response = await fetch(`${backendUrl}/api/quiz/generate`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ userAddress: address || '', isMock: true }),
+                          });
+                          const data = await response.json();
+                          if (!response.ok) throw new Error(data.error);
+                          
+                          setQuestions(data.questions);
+                          setCurrentQuestionIndex(0);
+                          setCorrectAnswers(0);
+                          setWrongAnswers(0);
+                          setWrongAnswers(0);
+                          setNetPointsLastQuiz(null);
+                          quizSubmitted.current = false;
+                          setQuizStage('quiz');
+                        } catch (error) {
+                          alert('Failed to launch mock quiz.');
+                        } finally {
+                          setIsGeneratingQuiz(false);
+                        }
+                      }}
+                      disabled={isGeneratingQuiz}
+                      className="w-full mt-4 bg-slate-800 hover:bg-slate-700 text-blue-400 border border-blue-500/30 font-bold py-3 rounded-lg transition-all disabled:opacity-50 text-sm"
+                    >
+                      {isGeneratingQuiz ? 'Loading...' : 'Start Mock Quiz'}
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4">
@@ -407,6 +526,12 @@ function AcademicsPage() {
                   {correctAnswers === questions.length ? '🎉' : correctAnswers > 0 ? '📚' : '😔'}
                 </div>
                 <h3 className="text-2xl font-bold text-white mb-4">Quiz Complete!</h3>
+                
+                {!hasStake && (
+                  <div className="bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm p-4 rounded-xl mb-6">
+                    <strong>Note:</strong> You just completed a Mock Quiz to test the app! Because you haven't staked G$ yet, these points were not recorded on-chain. Stake now to start earning for real!
+                  </div>
+                )}
 
                 <div className="grid grid-cols-3 gap-4 mb-6">
                   <div className="bg-slate-950/50 rounded-xl p-4">
@@ -447,25 +572,14 @@ function AcademicsPage() {
                 {canHarvest ? (
                   <div>
                     <h4 className="text-lg font-bold text-white mb-4">🎊 Your Plant is Bearing Fruit!</h4>
-                    <p className="text-slate-400 text-sm mb-6">Choose what to do with your accumulated points:</p>
+                    <p className="text-slate-400 text-sm mb-6">Convert your accumulated points to G$:</p>
                     <div className="space-y-3">
                       <button
-                        onClick={handleClaimAll}
+                        onClick={handleClaimPoints}
+                        disabled={isClaimingPoints}
                         className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold py-4 rounded-xl hover:shadow-lg transition-all"
                       >
-                        Claim All ({onChainPoints} pts → {(onChainPoints * 0.1).toFixed(1)} G$) → Wallet
-                      </button>
-                      <button
-                        onClick={() => handleStakeAndClaim(Math.floor(onChainPoints * 0.5))}
-                        className="w-full bg-gradient-to-r from-blue-500 to-cyan-600 text-white font-bold py-4 rounded-xl hover:shadow-lg transition-all"
-                      >
-                        Stake 50% ({Math.floor(onChainPoints * 0.5)} pts) + Claim Rest (+5% bonus)
-                      </button>
-                      <button
-                        onClick={handleStakeAll}
-                        className="w-full bg-gradient-to-r from-purple-500 to-pink-600 text-white font-bold py-4 rounded-xl hover:shadow-lg transition-all"
-                      >
-                        Stake All + 10% Bonus ({Math.floor(onChainPoints * 1.1)} pts)
+                        {isClaimingPoints ? "Claiming..." : `Claim ${onChainPoints} pts → ${(onChainPoints * 0.1).toFixed(1)} G$`}
                       </button>
                     </div>
                   </div>
@@ -494,6 +608,8 @@ function AcademicsPage() {
               </div>
             </div>
           ) : null}
+            </div>
+          )}
         </div>
 
         {/* Right: Plant Growth Visualization */}
@@ -551,6 +667,22 @@ function AcademicsPage() {
               <div className={contractStatus === PlantStatus.Fruiting ? 'text-purple-400 font-bold' : ''}>🍎 Fruiting (100+ pts) — Harvest ready!</div>
             </div>
           </div>
+          {/* Unstake Control */}
+          {hasStake && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mt-4">
+              <h4 className="text-red-400 font-bold mb-2">Unstake G$ Tokens</h4>
+              <p className="text-slate-400 text-xs mb-4">
+                You can withdraw your staked G$ anytime. This will exit the habit and prevent further points or activity until re-staking.
+              </p>
+              <button
+                onClick={handleUnstake}
+                disabled={isUnstaking}
+                className="w-full bg-red-500/20 hover:bg-red-500/40 text-red-300 font-bold py-3 rounded-lg border border-red-500/50 transition-all text-sm disabled:opacity-50"
+              >
+                {isUnstaking ? 'Unstaking...' : 'Unstake G$ Tokens'}
+              </button>
+            </div>
+          )}
         </div>
 
       </div>

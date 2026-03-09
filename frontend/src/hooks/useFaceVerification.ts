@@ -3,147 +3,122 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAccount } from 'wagmi';
 
-// ── Storage helpers (safe in SSR / private-browsing) ──────────────────────────
-
-function lsGet(key: string): string | null {
-  try { return localStorage.getItem(key); } catch { return null; }
-}
-function lsSet(key: string, val: string): void {
-  try { localStorage.setItem(key, val); } catch { /* SSR / private mode */ }
-}
-function lsDel(key: string): void {
-  try { localStorage.removeItem(key); } catch { /* ignore */ }
-}
+// ── Storage helpers ───────────────────────────────────────────────────────────
+function lsGet(k: string): string | null  { try { return localStorage.getItem(k);  } catch { return null; } }
+function lsSet(k: string, v: string): void { try { localStorage.setItem(k, v);      } catch { /* SSR/private */ } }
+function lsDel(k: string): void            { try { localStorage.removeItem(k);      } catch { /* ignore */ } }
 
 // ── Cache keys ────────────────────────────────────────────────────────────────
-
-const cacheKey   = (addr: string) => `fv_verified_${addr.toLowerCase()}`;
-const cacheTs    = (addr: string) => `fv_ts_${addr.toLowerCase()}`;
-// NEW: "pending" flag written BEFORE we redirect — survives page navigation
-const pendingKey = (addr: string) => `fv_pending_${addr.toLowerCase()}`;
+const cacheKey    = (a: string) => `fv_verified_${a.toLowerCase()}`;
+const cacheTs     = (a: string) => `fv_ts_${a.toLowerCase()}`;
+const pendingKey  = (a: string) => `fv_pending_${a.toLowerCase()}`;   // set BEFORE redirect
 
 // Trust local cache for 12 h (GoodDollar auth period is ~14 days)
 const LOCAL_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
+// ── Types ─────────────────────────────────────────────────────────────────────
 export interface FaceVerificationState {
-  isVerified : boolean;
-  isLoading  : boolean;
-  isPending  : boolean; // true while we are waiting for on-chain confirmation after redirect
+  /** True once on-chain GoodDollar identity is confirmed */
+  isVerified        : boolean;
+  /** True while polling after a GoodDollar redirect */
+  isPending         : boolean;
+  /** Call immediately BEFORE redirecting to GoodDollar */
+  markAsPending     : () => void;
+  /** Call after on-chain confirmation succeeds */
   markAsVerified    : () => void;
-  markAsPending     : () => void; // call this BEFORE redirecting to GoodDollar
+  /** Wipe all cached state */
   clearVerification : () => void;
 }
 
+// ── Hook ──────────────────────────────────────────────────────────────────────
 export function useFaceVerification(): FaceVerificationState {
   const { address, isConnected } = useAccount();
 
   const [isVerified, setIsVerified] = useState(false);
-  const [isLoading,  setIsLoading]  = useState(true);
   const [isPending,  setIsPending]  = useState(false);
 
-  // Prevent concurrent backend polls
-  const pollingRef = useRef(false);
+  // Prevent concurrent background checks
+  const checkingRef = useRef(false);
 
-  // ── Primary status check ────────────────────────────────────────────────────
   useEffect(() => {
     if (!isConnected || !address) {
       setIsVerified(false);
-      setIsLoading(false);
       setIsPending(false);
       return;
     }
 
     let cancelled = false;
-    setIsLoading(true);
 
-    const check = async () => {
-      // 1. Fast path: fresh local cache → trust it immediately, no network call
+    const runCheck = async () => {
+      // ── 1. Fast path: fresh local cache ──────────────────────────────────
       const cached = lsGet(cacheKey(address));
       const ts     = lsGet(cacheTs(address));
       if (cached === 'true' && ts && Date.now() - parseInt(ts, 10) < LOCAL_CACHE_TTL_MS) {
-        if (!cancelled) {
-          setIsVerified(true);
-          setIsLoading(false);
-        }
+        if (!cancelled) setIsVerified(true);
         return;
       }
 
-      // 2. Check if we set a "pending" flag (user just came back from GoodDollar)
-      //    Don't clear cache here — let FaceVerification.tsx handle confirmation
-      const pending = lsGet(pendingKey(address));
-      if (pending === 'true') {
-        if (!cancelled) {
-          // Show as "loading" — FaceVerification.tsx will resolve this
-          setIsPending(true);
-          setIsLoading(false);
-        }
+      // ── 2. Pending flag: user redirected to GoodDollar but not confirmed yet
+      if (lsGet(pendingKey(address)) === 'true') {
+        if (!cancelled) setIsPending(true);
         return;
       }
 
-      // 3. Authoritative on-chain check via backend.
-      //    Read the cache flag now so the catch block has a stable reference.
-      const cachedFlag = lsGet(cacheKey(address));
+      // ── 3. Silent background network check (never blocks the UI) ─────────
+      if (checkingRef.current) return;
+      checkingRef.current = true;
 
       try {
-        if (pollingRef.current) return;
-        pollingRef.current = true;
-
         const res = await fetch(`${BACKEND_URL}/api/verify/status/${address}`, {
           signal: AbortSignal.timeout(8000),
         });
 
-        if (!cancelled) {
-          // 503 = transient RPC error on the backend — don't clear cache
-          if (res.status === 503) {
-            if (cachedFlag === 'true') setIsVerified(true);
-            return; // finally handles setIsLoading(false)
-          }
+        if (cancelled) return;
 
-          if (res.ok) {
-            const data = await res.json();
-            if (data.verified) {
-              lsSet(cacheKey(address), 'true');
-              lsSet(cacheTs(address), Date.now().toString());
-              lsDel(pendingKey(address));
-              setIsVerified(true);
-            } else if (data.rpcError) {
-              // Backend got a transient RPC error — don't wipe cache
-              if (cachedFlag === 'true') setIsVerified(true);
-            } else {
-              // Clean definitive "not verified" — safe to clear cache
-              lsDel(cacheKey(address));
-              lsDel(cacheTs(address));
-              setIsVerified(false);
-            }
+        if (res.status === 503) {
+          // Transient RPC error — fall back to cache, don't clear
+          if (lsGet(cacheKey(address)) === 'true') setIsVerified(true);
+          return;
+        }
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.verified) {
+            lsSet(cacheKey(address), 'true');
+            lsSet(cacheTs(address),  Date.now().toString());
+            lsDel(pendingKey(address));
+            setIsVerified(true);
+          } else if (data.rpcError) {
+            // Transient backend hiccup — keep cache
+            if (lsGet(cacheKey(address)) === 'true') setIsVerified(true);
+          } else {
+            // Definitive "not verified"
+            lsDel(cacheKey(address));
+            lsDel(cacheTs(address));
+            setIsVerified(false);
           }
         }
       } catch {
-        // Network error — fall back to whatever cache we have, never clear it
-        if (!cancelled && cachedFlag === 'true') setIsVerified(true);
+        // Network error — silently fall back, never block user
+        if (!cancelled && lsGet(cacheKey(address)) === 'true') setIsVerified(true);
       } finally {
-        pollingRef.current = false;
-        if (!cancelled) setIsLoading(false);
+        checkingRef.current = false;
       }
     };
 
-    check();
+    runCheck();
     return () => { cancelled = true; };
-  // Intentionally only re-run on address/connection changes, NOT on every render
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address, isConnected]);
 
-  // ── markAsPending — call BEFORE redirecting to GoodDollar ──────────────────
   const markAsPending = useCallback(() => {
     if (!address) return;
     lsSet(pendingKey(address), 'true');
     setIsPending(true);
   }, [address]);
 
-  // ── markAsVerified — call after on-chain confirmation succeeds ──────────────
   const markAsVerified = useCallback(() => {
     if (!address) return;
     lsSet(cacheKey(address),  'true');
@@ -151,10 +126,8 @@ export function useFaceVerification(): FaceVerificationState {
     lsDel(pendingKey(address));
     setIsVerified(true);
     setIsPending(false);
-    setIsLoading(false);
   }, [address]);
 
-  // ── clearVerification — for testing / re-verification ──────────────────────
   const clearVerification = useCallback(() => {
     if (!address) return;
     lsDel(cacheKey(address));
@@ -164,5 +137,5 @@ export function useFaceVerification(): FaceVerificationState {
     setIsPending(false);
   }, [address]);
 
-  return { isVerified, isLoading, isPending, markAsVerified, markAsPending, clearVerification };
+  return { isVerified, isPending, markAsPending, markAsVerified, clearVerification };
 }

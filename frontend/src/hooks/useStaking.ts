@@ -45,25 +45,11 @@ export function useStaking(habitType: HabitType) {
     hash: plantHash,
   });
   
-  // Claim all points
-  const { writeContract: claimAll, data: claimAllHash } = useWriteContract();
+  // Claim earned points
+  const { writeContract: claimPointsTx, data: claimPointsHash } = useWriteContract();
   
-  const { isLoading: isClaimingAll, isSuccess: isAllClaimed } = useWaitForTransactionReceipt({
-    hash: claimAllHash,
-  });
-  
-  // Stake partial and claim
-  const { writeContract: stakePartial, data: stakePartialHash } = useWriteContract();
-  
-  const { isLoading: isStakingPartial, isSuccess: isPartialStaked } = useWaitForTransactionReceipt({
-    hash: stakePartialHash,
-  });
-  
-  // Stake all points
-  const { writeContract: stakeAll, data: stakeAllHash } = useWriteContract();
-  
-  const { isLoading: isStakingAll, isSuccess: isAllStaked } = useWaitForTransactionReceipt({
-    hash: stakeAllHash,
+  const { isLoading: isClaimingPoints, isSuccess: isPointsClaimed } = useWaitForTransactionReceipt({
+    hash: claimPointsHash,
   });
   
   // Unstake tokens
@@ -102,49 +88,25 @@ export function useStaking(habitType: HabitType) {
     });
   };
   
-  const claimAllPoints = async () => {
+  const claimPoints = async () => {
     if (!address) throw new Error('Wallet not connected');
     
-    claimAll({
+    claimPointsTx({
       address: contracts.staking as `0x${string}`,
       abi: STAKING_ABI,
-      functionName: 'claimAllPoints',
+      functionName: 'claimPoints',
       args: [habitType],
     });
   };
   
-  const stakePartialAndClaim = async (pointsToStake: bigint) => {
+  const unstakeTokens = async () => {
     if (!address) throw new Error('Wallet not connected');
-    
-    stakePartial({
-      address: contracts.staking as `0x${string}`,
-      abi: STAKING_ABI,
-      functionName: 'stakePartialAndClaim',
-      args: [habitType, pointsToStake],
-    });
-  };
-  
-  const stakeAllPoints = async () => {
-    if (!address) throw new Error('Wallet not connected');
-    
-    stakeAll({
-      address: contracts.staking as `0x${string}`,
-      abi: STAKING_ABI,
-      functionName: 'stakeAllPoints',
-      args: [habitType],
-    });
-  };
-  
-  const unstakeTokens = async (amount: string) => {
-    if (!address) throw new Error('Wallet not connected');
-    
-    const amountWei = parseUnits(amount, 18);
     
     unstake({
       address: contracts.staking as `0x${string}`,
       abi: STAKING_ABI,
       functionName: 'unstakeTokens',
-      args: [habitType, amountWei],
+      args: [habitType],
     });
   };
   
@@ -163,18 +125,10 @@ export function useStaking(habitType: HabitType) {
     isPlanting,
     isPlanted,
     
-    // Harvesting options
-    claimAllPoints,
-    isClaimingAll,
-    isAllClaimed,
-    
-    stakePartialAndClaim,
-    isStakingPartial,
-    isPartialStaked,
-    
-    stakeAllPoints,
-    isStakingAll,
-    isAllStaked,
+    // Claim points
+    claimPoints,
+    isClaimingPoints,
+    isPointsClaimed,
     
     // Unstaking
     unstakeTokens,
