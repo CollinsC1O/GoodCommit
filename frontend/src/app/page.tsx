@@ -8,7 +8,7 @@ import FaceVerification from '@/components/FaceVerification';
 export default function Home() {
   const router = useRouter();
   const { isConnected } = useAccount();
-  const { isVerified, isLoading, markAsVerified } = useFaceVerification();
+  const { isVerified, isLoading, isPending, markAsVerified, markAsPending } = useFaceVerification();
 
   const handleHabitClick = (route: string) => {
     if (!isConnected) {
@@ -22,11 +22,38 @@ export default function Home() {
     router.push(route);
   };
 
+  // While the hook is resolving, don't show the modal yet (avoids flash)
+  const showVerificationModal =
+    isConnected && !isLoading && !isPending && !isVerified;
+
   return (
     <>
-      {/* Face Verification Modal — shown as soon as wallet connects, until verified */}
-      {isConnected && !isLoading && !isVerified && (
-        <FaceVerification onVerified={markAsVerified} />
+      {/* Face Verification Modal */}
+      {showVerificationModal && (
+        <FaceVerification
+          onVerified={markAsVerified}
+          onPending={markAsPending}
+        />
+      )}
+
+      {/* Pending / confirming overlay (shown while polling after redirect return) */}
+      {isConnected && isPending && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-8 max-w-md w-full mx-4 text-center">
+            <div className="text-5xl mb-4">⛓️</div>
+            <h2 className="text-xl font-bold text-white mb-2">Confirming verification…</h2>
+            <p className="text-slate-400 text-sm mb-6">
+              Your face scan is being recorded on the blockchain. This usually takes 30–90 seconds.
+            </p>
+            <div className="flex items-center justify-center gap-2 text-green-400">
+              <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <span className="text-sm font-medium">Waiting on-chain…</span>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="max-w-7xl mx-auto px-6 py-16">
@@ -102,3 +129,4 @@ export default function Home() {
     </>
   );
 }
+

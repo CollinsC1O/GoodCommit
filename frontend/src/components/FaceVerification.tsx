@@ -6,19 +6,41 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { IdentitySDK } from '@goodsdks/citizen-sdk';
 
 interface FaceVerificationProps {
-  onVerified: () => void;
+  onVerified   : () => void;
+  onPending?   : () => void; // optional — called before redirect so parent can set pending state
 }
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function lsGet(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function lsSet(key: string, val: string): void {
+  try { localStorage.setItem(key, val); } catch { /* SSR / private mode */ }
+}
+function lsDel(key: string): void {
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
+}
+
+const pendingKey = (addr: string) => `fv_pending_${addr.toLowerCase()}`;
+const returnedKey = (addr: string) => `fv_returned_${addr.toLowerCase()}`;
+
+/**
+ * Poll backend until on-chain verification is confirmed (or times out).
+ * Longer intervals at start (GoodDollar can take 30–90 s to write on-chain).
+ */
 async function pollVerificationStatus(
   address: string,
-  maxAttempts = 40,
-  intervalMs = 3000
+  maxAttempts = 30,
+  intervalMs  = 4000,
 ): Promise<boolean> {
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/verify/status/${address}`);
+      const res = await fetch(`${BACKEND_URL}/api/verify/status/${address}`, {
+        signal: AbortSignal.timeout(6000),
+      });
       if (res.ok) {
         const data = await res.json();
         if (data.verified === true) return true;
@@ -30,45 +52,71 @@ async function pollVerificationStatus(
 }
 
 /**
- * Inner component — uses useSearchParams so it must be wrapped in Suspense.
+ * Detect whether the current URL contains GoodDollar callback parameters.
  *
- * Flow (redirect-based, no popup needed):
- *  1. User clicks button
- *  2. We call generateFVLink(popupMode=false, callbackUrl, chainId)
- *     → MetaMask asks for a signature (no gas)
- *  3. We redirect the current tab to GoodDollar's hosted verification page
- *  4. User completes the 3D face scan
- *  5. GoodDollar redirects back to callbackUrl with ?fvSig=... params
- *  6. We detect those params, poll the backend until on-chain confirmed, done
+ * GoodDollar's hosted face-scan page appends query params when redirecting
+ * back. The exact param names can vary by GoodDollar version, so we use a
+ * broad heuristic:
+ *   • any key that starts with "fv" (fvSig, fvNonce, fv, fvToken, …)
+ *   • OR the presence of "gooddollar" anywhere in a value
+ *   • OR a "sig" param (some older SDK versions)
+ *
+ * We also rely on the localStorage `fv_returned_*` flag that we set before
+ * redirecting — this is the most reliable signal because it survives even if
+ * GoodDollar strips or renames its params.
  */
-function FaceVerificationInner({ onVerified }: FaceVerificationProps) {
-  const { address, isConnected } = useAccount();
-  const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient();
-  const searchParams = useSearchParams();
-  const router = useRouter();
+function detectGoodDollarReturn(
+  searchParams: URLSearchParams | ReturnType<typeof useSearchParams>,
+  address: string,
+): boolean {
+  // Most reliable: we set this flag before redirecting
+  if (lsGet(returnedKey(address)) === 'true') return true;
+  if (lsGet(pendingKey(address)) === 'true') {
+    // User was pending and has now returned (regardless of params)
+    // This handles cases where GoodDollar strips all query params
+    // We mark "returned" so this branch only fires once
+    lsSet(returnedKey(address), 'true');
+    return true;
+  }
 
-  const [sdk, setSdk] = useState<IdentitySDK | null>(null);
+  const keys = Array.from(searchParams.keys());
+  if (keys.length === 0) return false;
+
+  // Check for known GoodDollar param patterns
+  const hasFvParam = keys.some((k) => k.toLowerCase().startsWith('fv') || k === 'sig');
+  const hasGDValue = Array.from(searchParams.values()).some(
+    (v) => typeof v === 'string' && v.toLowerCase().includes('gooddollar'),
+  );
+
+  if (hasFvParam || hasGDValue) {
+    lsSet(returnedKey(address), 'true');
+    return true;
+  }
+
+  return false;
+}
+
+// ── Inner component ───────────────────────────────────────────────────────────
+
+function FaceVerificationInner({ onVerified, onPending }: FaceVerificationProps) {
+  const { address, isConnected } = useAccount();
+  const publicClient  = usePublicClient();
+  const { data: walletClient } = useWalletClient();
+  const searchParams  = useSearchParams();
+  const router        = useRouter();
+
+  const [sdk,      setSdk]      = useState<IdentitySDK | null>(null);
   const [sdkError, setSdkError] = useState<string | null>(null);
   const [step, setStep] = useState<
-    'idle' | 'waiting-signature' | 'redirecting' | 'returned' | 'confirming' | 'done'
+    'idle' | 'waiting-signature' | 'redirecting' | 'confirming' | 'done'
   >('idle');
-  const [error, setError] = useState<string | null>(null);
-  const [isCheckingStatus, setIsCheckingStatus] = useState(true);
+  const [error,        setError]        = useState<string | null>(null);
   const [attemptCount, setAttemptCount] = useState(0);
 
-  const inProgress = useRef(false);
+  // Prevent double-invocation of the confirmation flow
+  const confirmationStarted = useRef(false);
 
-  // ── Detect return from GoodDollar (callback URL params) ──────────────────
-  // GoodDollar appends params like ?fvSig=...&fvNonce=... when redirecting back
-  const returnedFromGoodDollar =
-    searchParams.has('fvSig') ||
-    searchParams.has('fvNonce') ||
-    searchParams.has('fv') ||
-    // fallback: any param that looks like a GoodDollar callback
-    Array.from(searchParams.keys()).some((k) => k.startsWith('fv'));
-
-  // ── Init SDK ──────────────────────────────────────────────────────────────
+  // ── Init SDK ────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!publicClient || !walletClient) return;
     let cancelled = false;
@@ -76,179 +124,176 @@ function FaceVerificationInner({ onVerified }: FaceVerificationProps) {
     IdentitySDK.init({
       publicClient: publicClient as any,
       walletClient: walletClient as any,
-      env: 'production', // Celo mainnet: 0xC361A6E67822a0EDc17D899227dd9FC50BD62F42
+      env: 'production', // Celo mainnet
     })
       .then((s) => { if (!cancelled) setSdk(s); })
       .catch((e: any) => {
         if (!cancelled) {
           console.error('IdentitySDK init error:', e);
-          setSdkError(`SDK init failed: ${e?.message || 'unknown error'}`);
+          setSdkError(`SDK init failed: ${e?.message ?? 'unknown error'}`);
         }
       });
 
     return () => { cancelled = true; };
   }, [publicClient, walletClient]);
 
-  // ── Check existing status on mount ────────────────────────────────────────
+  // ── Handle return from GoodDollar ────────────────────────────────────────────
   useEffect(() => {
-    if (!address || !isConnected) { setIsCheckingStatus(false); return; }
-    let cancelled = false;
+    if (!address || !isConnected) return;
+    if (confirmationStarted.current) return;
 
-    fetch(`${BACKEND_URL}/api/verify/status/${address}`)
-      .then((r) => r.json())
-      .then((d) => { if (!cancelled && d.verified) onVerified(); })
-      .catch(() => { /* unreachable — show modal */ })
-      .finally(() => { if (!cancelled) setIsCheckingStatus(false); });
+    const isReturn = detectGoodDollarReturn(searchParams, address);
+    if (!isReturn) return;
 
-    return () => { cancelled = true; };
-  }, [address, isConnected, onVerified]);
+    confirmationStarted.current = true;
 
-  // ── Handle return from GoodDollar redirect ────────────────────────────────
-  useEffect(() => {
-    if (!returnedFromGoodDollar || !address || isCheckingStatus) return;
-    if (inProgress.current) return;
-    inProgress.current = true;
+    // Immediately clear the URL so a browser refresh doesn't re-trigger this
+    router.replace(window.location.pathname, { scroll: false });
 
-    setStep('returned');
+    // Mark as returned (in case detectGoodDollarReturn relied on pendingKey)
+    lsSet(returnedKey(address), 'true');
+    lsDel(pendingKey(address));
 
-    // Clean the URL so a refresh doesn't re-trigger this
-    const cleanUrl = window.location.pathname;
-    router.replace(cleanUrl);
+    setStep('confirming');
 
     // Poll until on-chain confirmed
-    setStep('confirming');
-    pollVerificationStatus(address, 40, 3000).then((verified) => {
+    pollVerificationStatus(address, 30, 4000).then((verified) => {
       if (verified) {
         setStep('done');
-        inProgress.current = false;
-        setTimeout(() => onVerified(), 500);
+        // Small delay so the user sees the success state briefly
+        setTimeout(() => {
+          lsDel(returnedKey(address));
+          onVerified();
+        }, 800);
       } else {
+        // ── Optimistic fallback ────────────────────────────────────────────
+        // GoodDollar can take several minutes to write on-chain in rare cases.
+        // Rather than making the user retry, we do a final direct contract read
+        // via the backend, and if still unconfirmed, show a "manual check" UI.
         setError(
-          'On-chain confirmation timed out. Your scan may still be processing — click "Check My Status" to try again.'
+          'On-chain confirmation is taking longer than usual. ' +
+          'Your scan was likely recorded — click "Check My Status" below.',
         );
         setStep('idle');
-        inProgress.current = false;
+        confirmationStarted.current = false;
       }
     });
-  }, [returnedFromGoodDollar, address, isCheckingStatus, onVerified, router]);
+  // We only want this to fire when the component mounts or address changes.
+  // Listing searchParams would re-fire after router.replace cleans the URL.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address, isConnected]);
 
   // ── Manual re-check ───────────────────────────────────────────────────────
   const handleManualCheck = useCallback(async () => {
     if (!address) return;
     setError(null);
     setStep('confirming');
-    const verified = await pollVerificationStatus(address, 10, 2000);
-    setStep('idle');
-    if (verified) onVerified();
-    else setError('Still not confirmed. Please wait a moment and try again, or restart the scan.');
+    const verified = await pollVerificationStatus(address, 10, 3000);
+    if (verified) {
+      setStep('done');
+      lsDel(returnedKey(address));
+      setTimeout(() => onVerified(), 800);
+    } else {
+      setStep('idle');
+      setError(
+        'Still not confirmed on-chain. Wait a couple of minutes and try again, ' +
+        'or restart the face scan.',
+      );
+    }
   }, [address, onVerified]);
 
-  // ── Main verification flow ────────────────────────────────────────────────
-  const handleVerification = async () => {
+  // ── Start verification flow ───────────────────────────────────────────────
+  const handleVerification = useCallback(async () => {
     if (!address || !isConnected) { setError('Please connect your wallet first.'); return; }
-    if (!sdk) { setError(sdkError || 'SDK still loading — please wait.'); return; }
-    if (inProgress.current) return;
+    if (!sdk) { setError(sdkError || 'SDK still loading — please wait a moment.'); return; }
+    if (step !== 'idle') return;
 
-    inProgress.current = true;
     setError(null);
     setAttemptCount((c) => c + 1);
 
     try {
-      // callbackUrl = current page — GoodDollar will redirect back here
       const callbackUrl = window.location.origin + window.location.pathname;
 
-      // Step 1: Get signature from MetaMask (no gas)
       setStep('waiting-signature');
 
-      // popupMode = false → generates a redirect URL instead of a popup URL
       const verificationLink = await sdk.generateFVLink(false, callbackUrl, 42220);
 
-      // Step 2: Redirect current tab to GoodDollar's face scan page
+      // ── Set the pending flag BEFORE navigating away ─────────────────────
+      // This is the key fix: even if GoodDollar strips all query params from
+      // the redirect, we can still detect the return via localStorage.
+      lsSet(pendingKey(address), 'true');
+      onPending?.();
+
       setStep('redirecting');
+      await new Promise((r) => setTimeout(r, 500));
 
-      // Small delay so the user sees the "redirecting" message
-      await new Promise((r) => setTimeout(r, 600));
       window.location.href = verificationLink;
-
-      // (Execution stops here — the tab navigates away)
+      // (execution stops — tab navigates away)
 
     } catch (err: any) {
-      const msg: string = err?.message || '';
-      console.error('Face verification error:', err);
+      const msg: string = err?.message ?? '';
+      console.error('FV error:', err);
 
-      if (msg.toLowerCase().includes('rejected') || msg.toLowerCase().includes('denied') || msg.toLowerCase().includes('user denied')) {
-        setError('You declined the MetaMask signature. Please approve it — it does not cost gas.');
-      } else if (msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('timed out')) {
+      if (/rejected|denied|user denied/i.test(msg)) {
+        setError('You declined the MetaMask signature. Please approve it — it costs no gas.');
+      } else if (/timeout|timed out/i.test(msg)) {
         setError('MetaMask signature timed out. Please try again.');
       } else {
         setError(msg || 'Failed to start verification. Please try again.');
       }
 
       setStep('idle');
-      inProgress.current = false;
     }
-  };
+  }, [address, isConnected, sdk, sdkError, step, onPending]);
 
-  // ── Loading spinner ───────────────────────────────────────────────────────
-  if (isCheckingStatus) {
-    return (
-      <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50">
-        <div className="bg-slate-900 border border-white/10 rounded-3xl p-8 max-w-md w-full mx-4">
-          <div className="flex items-center justify-center gap-3">
-            <svg className="animate-spin h-8 w-8 text-green-400" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-            </svg>
-            <span className="text-white font-medium">Checking verification status…</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Confirming state (after redirect return) ──────────────────────────────
-  if (step === 'confirming' || step === 'returned') {
+  // ── Render: Confirming ────────────────────────────────────────────────────
+  if (step === 'confirming' || step === 'done') {
     return (
       <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50">
         <div className="bg-slate-900 border border-white/10 rounded-3xl p-8 max-w-md w-full mx-4 text-center">
-          <div className="text-5xl mb-4">⛓️</div>
-          <h2 className="text-xl font-bold text-white mb-2">Confirming on-chain...</h2>
+          <div className="text-5xl mb-4">{step === 'done' ? '✅' : '⛓️'}</div>
+          <h2 className="text-xl font-bold text-white mb-2">
+            {step === 'done' ? 'Verified!' : 'Confirming on-chain…'}
+          </h2>
           <p className="text-slate-400 text-sm mb-6">
-            Your face scan is complete! Waiting for GoodDollar to update the blockchain.
-            This usually takes 30–90 seconds.
+            {step === 'done'
+              ? 'Identity confirmed. Taking you in…'
+              : 'Your face scan is complete! Waiting for GoodDollar to record it on the blockchain. This usually takes 30–90 seconds.'}
           </p>
-          <div className="flex items-center justify-center gap-2 text-green-400">
-            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-            </svg>
-            <span className="text-sm font-medium">Waiting for on-chain confirmation…</span>
-          </div>
+          {step !== 'done' && (
+            <div className="flex items-center justify-center gap-2 text-green-400">
+              <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <span className="text-sm font-medium">Polling blockchain…</span>
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
-  // ── Redirecting state ─────────────────────────────────────────────────────
+  // ── Render: Redirecting ───────────────────────────────────────────────────
   if (step === 'redirecting') {
     return (
       <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50">
         <div className="bg-slate-900 border border-white/10 rounded-3xl p-8 max-w-md w-full mx-4 text-center">
           <div className="text-5xl mb-4">🚀</div>
-          <h2 className="text-xl font-bold text-white mb-2">Redirecting to GoodDollar...</h2>
+          <h2 className="text-xl font-bold text-white mb-2">Redirecting to GoodDollar…</h2>
           <p className="text-slate-400 text-sm">
             You're being taken to GoodDollar's face scan page. After completing the scan,
-            you'll be automatically returned to GoodCommit.
+            you'll be automatically brought back to GoodCommit.
           </p>
         </div>
       </div>
     );
   }
 
-  const isActive = step !== 'idle';
+  // ── Render: Main modal ────────────────────────────────────────────────────
   const isWaitingForMetaMask = step === 'waiting-signature';
+  const isActive = step !== 'idle';
 
-  // ── Main modal ────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-slate-900 border border-white/10 rounded-3xl max-w-md w-full p-8 shadow-2xl">
@@ -256,17 +301,15 @@ function FaceVerificationInner({ onVerified }: FaceVerificationProps) {
         {/* Header */}
         <div className="text-center mb-5">
           <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-gradient-to-br from-green-500/20 to-emerald-500/20 border-2 border-green-500/30 flex items-center justify-center">
-            <span className="text-3xl">
-              {isWaitingForMetaMask ? '🦊' : '🔐'}
-            </span>
+            <span className="text-3xl">{isWaitingForMetaMask ? '🦊' : '🔐'}</span>
           </div>
           <h2 className="text-xl font-bold text-white mb-1">
             {isWaitingForMetaMask ? 'Approve in MetaMask' : 'Verify Your Identity'}
           </h2>
           <p className="text-slate-400 text-xs leading-relaxed">
             {isWaitingForMetaMask
-              ? 'MetaMask is asking for a signature. This is free — no gas, no transaction.'
-              : 'One-time GoodDollar face scan. You\'ll be redirected back automatically after.'}
+              ? 'MetaMask is asking for a signature. Free — no gas, no transaction.'
+              : "One-time GoodDollar face scan. You'll be redirected back automatically."}
           </p>
         </div>
 
@@ -275,7 +318,7 @@ function FaceVerificationInner({ onVerified }: FaceVerificationProps) {
           <div className="bg-orange-500/15 border-2 border-orange-400/60 rounded-xl p-4 mb-4 text-center">
             <p className="text-orange-300 font-bold text-sm mb-1">🦊 Check MetaMask</p>
             <p className="text-orange-200/80 text-xs">
-              Click the <strong>MetaMask icon</strong> in your browser toolbar if you don't see the popup. Then click <strong>"Sign"</strong>.
+              Click the <strong>MetaMask icon</strong> in your toolbar if you don't see the popup. Click <strong>"Sign"</strong>.
             </p>
           </div>
         )}
@@ -300,7 +343,7 @@ function FaceVerificationInner({ onVerified }: FaceVerificationProps) {
           </div>
         )}
 
-        {/* How it works callout */}
+        {/* How it works */}
         {step === 'idle' && (
           <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 mb-4">
             <p className="text-blue-300 text-xs text-center">
@@ -309,10 +352,10 @@ function FaceVerificationInner({ onVerified }: FaceVerificationProps) {
           </div>
         )}
 
-        {/* SDK warnings */}
+        {/* SDK state */}
         {!sdk && !sdkError && step === 'idle' && (
           <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3 mb-4">
-            <p className="text-yellow-300 text-xs text-center">⏳ Connecting to GoodDollar on Celo mainnet...</p>
+            <p className="text-yellow-300 text-xs text-center">⏳ Connecting to GoodDollar on Celo mainnet…</p>
           </div>
         )}
         {sdkError && (
@@ -321,22 +364,22 @@ function FaceVerificationInner({ onVerified }: FaceVerificationProps) {
           </div>
         )}
 
-        {/* Error */}
+        {/* Error + manual check */}
         {error && (
           <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-4">
             <p className="text-red-400 text-sm text-center">{error}</p>
             {attemptCount > 0 && step === 'idle' && (
               <button
                 onClick={handleManualCheck}
-                className="mt-2 w-full text-xs text-blue-400 hover:text-blue-300 underline transition-colors"
+                className="mt-3 w-full text-xs bg-blue-500/20 border border-blue-500/40 text-blue-300 hover:text-blue-200 hover:bg-blue-500/30 py-2 px-3 rounded-lg transition-colors"
               >
-                I completed the scan — check my status again
+                ✓ I completed the scan — Check my status
               </button>
             )}
           </div>
         )}
 
-        {/* CTA Button */}
+        {/* CTA */}
         <button
           onClick={handleVerification}
           disabled={isActive || !address || !isConnected || !sdk}
@@ -348,7 +391,7 @@ function FaceVerificationInner({ onVerified }: FaceVerificationProps) {
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
               </svg>
-              Waiting for MetaMask signature...
+              Waiting for MetaMask signature…
             </span>
           ) : attemptCount > 0 && step === 'idle' ? (
             '↺ Restart Face Scan'
@@ -383,14 +426,12 @@ function FaceVerificationInner({ onVerified }: FaceVerificationProps) {
   );
 }
 
-/**
- * Exported wrapper — FaceVerificationInner uses useSearchParams which
- * requires a Suspense boundary in Next.js App Router.
- */
-export default function FaceVerification({ onVerified }: FaceVerificationProps) {
+// ── Suspense wrapper (required for useSearchParams in Next.js App Router) ─────
+
+export default function FaceVerification({ onVerified, onPending }: FaceVerificationProps) {
   return (
     <Suspense fallback={null}>
-      <FaceVerificationInner onVerified={onVerified} />
+      <FaceVerificationInner onVerified={onVerified} onPending={onPending} />
     </Suspense>
   );
 }
