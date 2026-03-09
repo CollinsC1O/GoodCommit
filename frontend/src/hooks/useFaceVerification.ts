@@ -84,8 +84,10 @@ export function useFaceVerification(): FaceVerificationState {
         return;
       }
 
-      // 3. Authoritative on-chain check via backend
-      //    ONLY clear cache when we get a definitive "not verified" — not on errors
+      // 3. Authoritative on-chain check via backend.
+      //    Read the cache flag now so the catch block has a stable reference.
+      const cachedFlag = lsGet(cacheKey(address));
+
       try {
         if (pollingRef.current) return;
         pollingRef.current = true;
@@ -94,23 +96,34 @@ export function useFaceVerification(): FaceVerificationState {
           signal: AbortSignal.timeout(8000),
         });
 
-        if (!cancelled && res.ok) {
-          const data = await res.json();
-          if (data.verified) {
-            lsSet(cacheKey(address), 'true');
-            lsSet(cacheTs(address), Date.now().toString());
-            lsDel(pendingKey(address));
-            if (!cancelled) setIsVerified(true);
-          } else {
-            // Only wipe cache on a definitive "not verified" from a healthy response
-            lsDel(cacheKey(address));
-            lsDel(cacheTs(address));
-            if (!cancelled) setIsVerified(false);
+        if (!cancelled) {
+          // 503 = transient RPC error on the backend — don't clear cache
+          if (res.status === 503) {
+            if (cachedFlag === 'true') setIsVerified(true);
+            return; // finally handles setIsLoading(false)
+          }
+
+          if (res.ok) {
+            const data = await res.json();
+            if (data.verified) {
+              lsSet(cacheKey(address), 'true');
+              lsSet(cacheTs(address), Date.now().toString());
+              lsDel(pendingKey(address));
+              setIsVerified(true);
+            } else if (data.rpcError) {
+              // Backend got a transient RPC error — don't wipe cache
+              if (cachedFlag === 'true') setIsVerified(true);
+            } else {
+              // Clean definitive "not verified" — safe to clear cache
+              lsDel(cacheKey(address));
+              lsDel(cacheTs(address));
+              setIsVerified(false);
+            }
           }
         }
       } catch {
-        // Network error — fall back to cache, don't clear it
-        if (!cancelled) setIsVerified(cached === 'true');
+        // Network error — fall back to whatever cache we have, never clear it
+        if (!cancelled && cachedFlag === 'true') setIsVerified(true);
       } finally {
         pollingRef.current = false;
         if (!cancelled) setIsLoading(false);
@@ -153,4 +166,3 @@ export function useFaceVerification(): FaceVerificationState {
 
   return { isVerified, isLoading, isPending, markAsVerified, markAsPending, clearVerification };
 }
-

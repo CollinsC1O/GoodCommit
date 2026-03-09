@@ -8,13 +8,21 @@ import FaceVerification from '@/components/FaceVerification';
 export default function Home() {
   const router = useRouter();
   const { isConnected } = useAccount();
-  const { isVerified, isLoading, isPending, markAsVerified, markAsPending } = useFaceVerification();
+  const {
+    isVerified,
+    isLoading,
+    isPending,
+    markAsVerified,
+    markAsPending,
+  } = useFaceVerification();
 
   const handleHabitClick = (route: string) => {
     if (!isConnected) {
       alert('Please connect your wallet first');
       return;
     }
+    // Block navigation while loading or pending — verification state unknown
+    if (isLoading || isPending) return;
     if (!isVerified) {
       alert('Please complete face verification first');
       return;
@@ -22,13 +30,33 @@ export default function Home() {
     router.push(route);
   };
 
-  // While the hook is resolving, don't show the modal yet (avoids flash)
-  const showVerificationModal =
-    isConnected && !isLoading && !isPending && !isVerified;
+  // ── Modal visibility logic ─────────────────────────────────────────────────
+  // Only show the verification modal when we are CERTAIN the user is not verified.
+  // isLoading  → still checking, don't flash the modal
+  // isPending  → user already went to GoodDollar and returned, FaceVerification
+  //              is handling the confirmation polling itself — don't show modal
+  // isVerified → user is good, no modal needed
+  const showVerificationModal = isConnected && !isLoading && !isPending && !isVerified;
+
+  // isPending overlay is shown here in page.tsx ONLY as a fallback — in practice
+  // FaceVerification.tsx handles the confirming UI itself once it mounts. This
+  // overlay covers the brief gap between page load and the component mounting.
+  const showPendingOverlay = isConnected && isPending && !showVerificationModal;
+
+  // Cards are clickable only when fully verified. While loading/pending,
+  // disable them but don't show "verify first" text (state is still resolving).
+  const cardsDisabled = isConnected && (!isVerified || isLoading || isPending);
+  const cardCta = (color: string) => {
+    if (!isConnected) return `Plant a Seed →`;
+    if (isLoading)    return '⏳ Checking…';
+    if (isPending)    return '⛓️ Confirming…';
+    if (!isVerified)  return '🔐 Verify First';
+    return `Plant a Seed →`;
+  };
 
   return (
     <>
-      {/* Face Verification Modal */}
+      {/* ── Face Verification Modal ───────────────────────────────────────── */}
       {showVerificationModal && (
         <FaceVerification
           onVerified={markAsVerified}
@@ -36,8 +64,8 @@ export default function Home() {
         />
       )}
 
-      {/* Pending / confirming overlay (shown while polling after redirect return) */}
-      {isConnected && isPending && (
+      {/* ── Pending overlay (gap cover while FaceVerification mounts) ─────── */}
+      {showPendingOverlay && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-slate-900 border border-white/10 rounded-3xl p-8 max-w-md w-full mx-4 text-center">
             <div className="text-5xl mb-4">⛓️</div>
@@ -56,6 +84,7 @@ export default function Home() {
         </div>
       )}
 
+      {/* ── Page content ──────────────────────────────────────────────────── */}
       <div className="max-w-7xl mx-auto px-6 py-16">
         <header className="mb-16 text-center">
           <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight mb-6 text-slate-900 dark:text-white">
@@ -75,7 +104,7 @@ export default function Home() {
           {/* Health & Fitness Card */}
           <button
             onClick={() => handleHabitClick('/health')}
-            disabled={isConnected && !isVerified}
+            disabled={cardsDisabled}
             className="group relative block p-[1px] rounded-3xl overflow-hidden transition-all hover:scale-[1.02] text-left w-full disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <div className="absolute inset-0 bg-gradient-to-br from-green-400 to-blue-600 opacity-50 group-hover:opacity-100 transition-opacity" />
@@ -89,7 +118,7 @@ export default function Home() {
                 validated selfies or GPS tracking.
               </p>
               <div className="flex items-center text-green-400 font-medium group-hover:translate-x-1 transition-transform">
-                {isConnected && !isVerified ? '🔐 Verify First' : 'Plant a Seed →'}
+                {cardCta('green')}
               </div>
             </div>
           </button>
@@ -97,7 +126,7 @@ export default function Home() {
           {/* Academics Card */}
           <button
             onClick={() => handleHabitClick('/academics')}
-            disabled={isConnected && !isVerified}
+            disabled={cardsDisabled}
             className="group relative block p-[1px] rounded-3xl overflow-hidden transition-all hover:scale-[1.02] text-left w-full disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-pink-500 opacity-50 group-hover:opacity-100 transition-opacity" />
@@ -111,7 +140,7 @@ export default function Home() {
                 tab-switching allowed. Grow smarter, grow richer.
               </p>
               <div className="flex items-center text-purple-400 font-medium group-hover:translate-x-1 transition-transform">
-                {isConnected && !isVerified ? '🔐 Verify First' : 'Plant a Seed →'}
+                {cardCta('purple')}
               </div>
             </div>
           </button>
@@ -129,4 +158,3 @@ export default function Home() {
     </>
   );
 }
-
