@@ -6,140 +6,123 @@ import * as path from "path";
 dotenv.config();
 
 async function main() {
-  console.log("🌱 Deploying GoodCommit Staking Contract...\n");
+  console.log("🌱 Deploying GoodCommit Staking Contract (V3)...\n");
 
-  // Get deployer
   const [deployer] = await ethers.getSigners();
   console.log("Deploying with account:", deployer.address);
-  
+
   const balance = await ethers.provider.getBalance(deployer.address);
   console.log("Account balance:", ethers.formatEther(balance), "CELO\n");
 
-  // Check balance
-  if (balance < ethers.parseEther("0.01")) {
-    console.error("❌ Insufficient balance! Need at least 0.01 CELO for gas");
+  if (balance < ethers.parseEther("0.1")) {
+    console.error("❌ Insufficient balance! Need at least 0.1 CELO for gas");
     process.exit(1);
   }
 
-  // Get addresses from environment
-  const gTokenAddress = process.env.GTOKEN_ADDRESS;
-  const ubiPoolAddress = process.env.UBI_POOL_ADDRESS;
-  const rewardTreasuryAddress = process.env.REWARD_TREASURY_ADDRESS;
-  const verifierAddress = process.env.VERIFIER_ADDRESS;
+  // ── Pull all 5 required addresses from env ──────────────────────────────
+  const gTokenAddress       = process.env.GTOKEN_ADDRESS;
+  const identityAddress     = process.env.IDENTITY_CONTRACT_ADDRESS;
+  const verifierAddress     = process.env.VERIFIER_ADDRESS;
+  const rewardTreasury      = process.env.REWARD_TREASURY_ADDRESS;
+  const ubiPoolAddress      = process.env.UBI_POOL_ADDRESS;
 
-  // Validate addresses
-  if (!gTokenAddress || !ubiPoolAddress || !rewardTreasuryAddress || !verifierAddress) {
-    console.error("❌ Missing required environment variables!");
-    console.log("Required: GTOKEN_ADDRESS, UBI_POOL_ADDRESS, REWARD_TREASURY_ADDRESS, VERIFIER_ADDRESS");
+  // ── Validate all 5 are present ───────────────────────────────────────────
+  const missing = [
+    ["GTOKEN_ADDRESS",            gTokenAddress],
+    ["IDENTITY_CONTRACT_ADDRESS", identityAddress],
+    ["VERIFIER_ADDRESS",          verifierAddress],
+    ["REWARD_TREASURY_ADDRESS",   rewardTreasury],
+    ["UBI_POOL_ADDRESS",          ubiPoolAddress],
+  ]
+    .filter(([, v]) => !v)
+    .map(([k]) => k);
+
+  if (missing.length > 0) {
+    console.error("❌ Missing required env vars:", missing.join(", "));
     process.exit(1);
+  }
+
+  // ── Validate all addresses are checksummed/valid ─────────────────────────
+  const addresses = { gTokenAddress, identityAddress, verifierAddress, rewardTreasury, ubiPoolAddress };
+  for (const [name, addr] of Object.entries(addresses)) {
+    try {
+      ethers.getAddress(addr!);
+    } catch {
+      console.error(`❌ Invalid address for ${name}: ${addr}`);
+      process.exit(1);
+    }
   }
 
   console.log("Deployment Configuration:");
-  console.log("├─ G$ Token:", gTokenAddress);
-  console.log("├─ UBI Pool:", ubiPoolAddress);
-  console.log("├─ Reward Treasury:", rewardTreasuryAddress);
-  console.log("└─ Verifier:", verifierAddress);
+  console.log("├─ G$ Token:          ", gTokenAddress);
+  console.log("├─ Identity Contract: ", identityAddress);
+  console.log("├─ Verifier:          ", verifierAddress);
+  console.log("├─ Reward Treasury:   ", rewardTreasury);
+  console.log("└─ UBI Pool:          ", ubiPoolAddress);
   console.log();
 
-  // Deploy GoodCommitStaking
+  // ── Deploy ───────────────────────────────────────────────────────────────
   console.log("📦 Deploying GoodCommitStaking...");
-  const GoodCommitStaking = await ethers.getContractFactory("GoodCommitStaking");
-  
-  const staking = await GoodCommitStaking.deploy(
+  const Factory = await ethers.getContractFactory("GoodCommitStaking");
+
+  const staking = await Factory.deploy(
     gTokenAddress,
-    ubiPoolAddress,
-    rewardTreasuryAddress,
-    verifierAddress
+    identityAddress,   // ← V3 addition — was missing from old deploy script
+    verifierAddress,
+    rewardTreasury,
+    ubiPoolAddress
   );
 
   await staking.waitForDeployment();
   const stakingAddress = await staking.getAddress();
 
   console.log("✅ GoodCommitStaking deployed to:", stakingAddress);
-  console.log();
 
-  // Get network info
+  // ── Save deployment info ─────────────────────────────────────────────────
   const network = await ethers.provider.getNetwork();
-  
-  // Create deployment info object
+  const networkName = network.name === "unknown" ? `chain-${network.chainId}` : network.name;
+
   const deploymentInfo = {
-    network: network.name,
+    network: networkName,
     chainId: network.chainId.toString(),
     contracts: {
-      GoodCommitStaking: stakingAddress,
-      GToken: gTokenAddress,
+      GoodCommitStaking:  stakingAddress,
+      GToken:             gTokenAddress,
+      IdentityContract:   identityAddress,
     },
     addresses: {
-      deployer: deployer.address,
-      ubiPool: ubiPoolAddress,
-      rewardTreasury: rewardTreasuryAddress,
-      verifier: verifierAddress,
+      deployer:        deployer.address,
+      verifier:        verifierAddress,
+      rewardTreasury:  rewardTreasury,
+      ubiPool:         ubiPoolAddress,
     },
-    timestamp: new Date().toISOString(),
+    timestamp:   new Date().toISOString(),
     blockNumber: await ethers.provider.getBlockNumber(),
   };
 
-  // Print to console
-  console.log("📝 Deployment Summary:");
-  console.log(JSON.stringify(deploymentInfo, null, 2));
-  console.log();
-
-  // ============================================
-  // 💾 SAVE TO FILE (NEW!)
-  // ============================================
-  
-  // Create deployments directory if it doesn't exist
   const deploymentsDir = path.join(__dirname, "..", "deployments");
-  if (!fs.existsSync(deploymentsDir)) {
-    fs.mkdirSync(deploymentsDir, { recursive: true });
-    console.log("📁 Created deployments directory");
-  }
+  if (!fs.existsSync(deploymentsDir)) fs.mkdirSync(deploymentsDir, { recursive: true });
 
-  // Save to network-specific file
-  const networkName = network.name === "unknown" ? `chain-${network.chainId}` : network.name;
   const deploymentFile = path.join(deploymentsDir, `${networkName}.json`);
-  
-  fs.writeFileSync(
-    deploymentFile,
-    JSON.stringify(deploymentInfo, null, 2),
-    "utf-8"
-  );
-  
-  console.log(`💾 Deployment info saved to: ${deploymentFile}`);
-  console.log();
+  fs.writeFileSync(deploymentFile, JSON.stringify(deploymentInfo, null, 2));
+  console.log(`\n💾 Saved to: ${deploymentFile}`);
 
-  // Also save to a timestamped file (history)
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const historyFile = path.join(deploymentsDir, `${networkName}-${timestamp}.json`);
-  
-  fs.writeFileSync(
-    historyFile,
-    JSON.stringify(deploymentInfo, null, 2),
-    "utf-8"
+  // ── Post-deploy checklist ────────────────────────────────────────────────
+  console.log("\n🎯 IMPORTANT — Do these steps now:");
+  console.log(`\n1. Fund the contract with G$ so it can pay seed claims and point payouts:`);
+  console.log(`   On Celo Explorer, call fundContract() with at least 1000 G$`);
+  console.log(`   Contract must hold G$ or claimInitialSeed() and claimPoints() will revert`);
+  console.log(`\n2. Update your backend .env:`);
+  console.log(`   STAKING_CONTRACT_ADDRESS=${stakingAddress}`);
+  console.log(`\n3. Update your frontend config:`);
+  console.log(`   NEXT_PUBLIC_STAKING_CONTRACT=${stakingAddress}`);
+  console.log(`\n4. Verify on CeloScan:`);
+  console.log(
+    `   npx hardhat verify --network celo ${stakingAddress}`,
+    gTokenAddress, identityAddress, verifierAddress, rewardTreasury, ubiPoolAddress
   );
-  
-  console.log(`📜 History saved to: ${historyFile}`);
-  console.log();
-
-  // ============================================
-  // Print next steps
-  // ============================================
-  
-  console.log("🎯 Next Steps:");
-  console.log("1. Fund reward treasury with G$ tokens");
-  console.log("2. Approve staking contract from treasury:");
-  console.log(`   gToken.approve("${stakingAddress}", amount)`);
-  console.log("3. Update frontend config with contract address");
-  console.log("4. Update backend .env with contract address and verifier key");
-  console.log("5. Verify contract on CeloScan:");
-  console.log(`   npx hardhat verify --network alfajores ${stakingAddress} ${gTokenAddress} ${ubiPoolAddress} ${rewardTreasuryAddress} ${verifierAddress}`);
-  console.log();
-  console.log("📂 Deployment files saved in: contracts/deployments/");
 }
 
 main()
   .then(() => process.exit(0))
-  .catch((error) => {
-    console.error(error);
-    process.exit(1);
-  });
+  .catch((err) => { console.error(err); process.exit(1); });

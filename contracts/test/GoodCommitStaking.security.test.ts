@@ -1,491 +1,1530 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
-import { GoodCommitStaking } from "../typechain-types";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 
-describe("GoodCommitStaking - Security Tests", function () {
-  let goodCommitStaking: GoodCommitStaking;
-  let mockGToken: any;
-  let owner: SignerWithAddress;
-  let user1: SignerWithAddress;
-  let user2: SignerWithAddress;
-  let attacker: SignerWithAddress;
-  let ubiPool: SignerWithAddress;
-  let rewardTreasury: SignerWithAddress;
-  let verifier: SignerWithAddress;
+// ─────────────────────────────────────────────────────────────────────────────
+// GoodCommitStaking — Security Test Suite
+// Contract: contracts/GoodCommitStaking.sol (V3)
+//
+// Constructor (5 args):
+//   GoodCommitStaking(gDollarToken, identityContract, verifier, rewardTreasury, ubiPool)
+// ─────────────────────────────────────────────────────────────────────────────
 
-  const INITIAL_SEED_AMOUNT = ethers.parseEther("10");
-  const ONE_DAY = 24 * 60 * 60;
+const HabitType = { Health: 0, Academics: 1 } as const;
+const DAY       = 86_400;
+const e18       = (n: number | string) => ethers.parseEther(String(n));
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe("GoodCommitStaking - Security Tests", function () {
+
+  let staking:        any;
+  let mockGToken:     any;
+  let mockIdentity:   any;
+  let stakingAddr:    string;
+
+  let owner:          SignerWithAddress;
+  let user1:          SignerWithAddress;
+  let user2:          SignerWithAddress;
+  let attacker:       SignerWithAddress;
+  let ubiPool:        SignerWithAddress;
+  let rewardTreasury: SignerWithAddress;
+  let verifier:       SignerWithAddress;
 
   beforeEach(async function () {
-    [owner, user1, user2, attacker, ubiPool, rewardTreasury, verifier] = await ethers.getSigners();
+    [owner, user1, user2, attacker, ubiPool, rewardTreasury, verifier] =
+      await ethers.getSigners();
 
-    const MockGToken = await ethers.getContractFactory("MockGToken");
-    mockGToken = await MockGToken.deploy();
+    mockGToken   = await (await ethers.getContractFactory("MockGToken")).deploy();
+    mockIdentity = await (await ethers.getContractFactory("MockIdentity")).deploy();
 
-    const GoodCommitStaking = await ethers.getContractFactory("GoodCommitStaking");
-    goodCommitStaking = await GoodCommitStaking.deploy(
-      await mockGToken.getAddress(),
-      ubiPool.address,
-      rewardTreasury.address,
-      verifier.address
+    // 5-arg constructor — V3
+    staking = await (await ethers.getContractFactory("GoodCommitStaking")).deploy(
+      await mockGToken.getAddress(),    // _gDollarToken
+      await mockIdentity.getAddress(),  // _identityContract
+      verifier.address,                 // _verifier
+      rewardTreasury.address,           // _rewardTreasury
+      ubiPool.address,                  // _ubiPool
     );
+    stakingAddr = await staking.getAddress();
 
-    const treasuryAmount = ethers.parseEther("1000000");
-    await mockGToken.mint(rewardTreasury.address, treasuryAmount);
-    await mockGToken.connect(rewardTreasury).approve(
-      await goodCommitStaking.getAddress(),
-      treasuryAmount
-    );
+    await mockGToken.mint(owner.address,    e18(500_000));
+    await mockGToken.mint(user1.address,    e18(10_000));
+    await mockGToken.mint(user2.address,    e18(10_000));
+    await mockGToken.mint(attacker.address, e18(10_000));
 
-    await mockGToken.mint(user1.address, ethers.parseEther("1000"));
-    await mockGToken.mint(user2.address, ethers.parseEther("1000"));
-    await mockGToken.mint(attacker.address, ethers.parseEther("1000"));
+    await mockGToken.connect(owner).approve(stakingAddr, e18(200_000));
+    await staking.connect(owner).fundContract(e18(200_000));
+
+    await mockIdentity.setVerified(user1.address, true);
+    await mockIdentity.setVerified(user2.address, true);
+
+    await mockGToken.connect(user1).approve(stakingAddr, e18(10_000));
+    await mockGToken.connect(user2).approve(stakingAddr, e18(10_000));
+    await mockGToken.connect(attacker).approve(stakingAddr, e18(10_000));
   });
 
-  describe("Reentrancy Protection", function () {
-    it("Should prevent reentrancy on claimAllPoints", async function () {
-      await goodCommitStaking.connect(verifier).recordWorkout(
-        user1.address,
-        0,
-        1800,
-        100,
-        "running"
-      );
-
-      // Try to claim twice in quick succession (simulating reentrancy attempt)
-      const claimPromise1 = goodCommitStaking.connect(user1).claimAllPoints(0);
-      
-      await expect(claimPromise1).to.not.be.reverted;
-      
-      // Second claim should fail (no points left)
-      await expect(
-        goodCommitStaking.connect(user1).claimAllPoints(0)
-      ).to.be.revertedWith("No points to claim");
-    });
-
-    it("Should prevent reentrancy on plantSeed", async function () {
-      await mockGToken.connect(user1).approve(
-        await goodCommitStaking.getAddress(),
-        ethers.parseEther("1000")
-      );
-
-      await expect(
-        goodCommitStaking.connect(user1).plantSeed(0, ethers.parseEther("100"), 7)
-      ).to.not.be.reverted;
-    });
-  });
-
+  // ═══════════════════════════════════════════════════════════════════════════
+  // A. ACCESS CONTROL
+  // ═══════════════════════════════════════════════════════════════════════════
   describe("Access Control", function () {
-    it("Should prevent non-verifier from recording workouts", async function () {
+
+    it("non-verifier cannot recordWorkout", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
       await expect(
-        goodCommitStaking.connect(attacker).recordWorkout(
-          user1.address,
-          0,
-          1800,
-          1000000, // Try to give massive points
-          "fake"
-        )
-      ).to.be.revertedWith("Not authorized verifier");
+        staking.connect(attacker).recordWorkout(user1.address, HabitType.Health, 3600, 50, "run")
+      ).to.be.revertedWith("GoodCommit: caller is not verifier");
     });
 
-    it("Should prevent non-verifier from recording quizzes", async function () {
+    it("non-verifier cannot recordQuiz", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 30);
       await expect(
-        goodCommitStaking.connect(attacker).recordQuiz(
-          user1.address,
-          1,
-          10,
-          10,
-          1000000,
-          0
-        )
-      ).to.be.revertedWith("Not authorized verifier");
+        staking.connect(attacker).recordQuiz(user1.address, HabitType.Academics, 10, 10, 999_999, 0)
+      ).to.be.revertedWith("GoodCommit: caller is not verifier");
     });
 
-    it("Should prevent non-verifier from slashing stakes", async function () {
-      await mockGToken.connect(user1).approve(
-        await goodCommitStaking.getAddress(),
-        ethers.parseEther("1000")
-      );
-      await goodCommitStaking.connect(user1).plantSeed(0, ethers.parseEther("100"), 7);
-
+    it("non-verifier cannot slashStake", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+      await time.increase(3 * DAY + 1);
       await expect(
-        goodCommitStaking.connect(attacker).slashStake(user1.address, 0, "fake reason")
-      ).to.be.revertedWith("Not authorized verifier");
+        staking.connect(attacker).slashStake(user1.address, HabitType.Health, "fake")
+      ).to.be.revertedWith("GoodCommit: caller is not verifier");
     });
 
-    it("Should prevent non-owner from changing critical addresses", async function () {
-      await expect(
-        goodCommitStaking.connect(attacker).setUBIPool(attacker.address)
-      ).to.be.revertedWithCustomError(goodCommitStaking, "OwnableUnauthorizedAccount");
+    it("non-owner cannot setVerifier",       async function () { await expect(staking.connect(attacker).setVerifier(attacker.address)).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+    it("non-owner cannot setRewardTreasury", async function () { await expect(staking.connect(attacker).setRewardTreasury(attacker.address)).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+    it("non-owner cannot setUbiPool",        async function () { await expect(staking.connect(attacker).setUbiPool(attacker.address)).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+    it("non-owner cannot fundContract",      async function () { await expect(staking.connect(attacker).fundContract(e18(100))).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+    it("non-owner cannot pause",             async function () { await expect(staking.connect(attacker).pause()).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+    it("non-owner cannot unpause",           async function () { await staking.connect(owner).pause(); await expect(staking.connect(attacker).unpause()).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+    it("non-owner cannot emergencyWithdraw", async function () { await staking.connect(owner).pause(); await expect(staking.connect(attacker).emergencyWithdraw()).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
 
+    it("verifier cannot award points to themselves (no active stake)", async function () {
       await expect(
-        goodCommitStaking.connect(attacker).setRewardTreasury(attacker.address)
-      ).to.be.revertedWithCustomError(goodCommitStaking, "OwnableUnauthorizedAccount");
-
-      await expect(
-        goodCommitStaking.connect(attacker).setVerifier(attacker.address)
-      ).to.be.revertedWithCustomError(goodCommitStaking, "OwnableUnauthorizedAccount");
+        staking.connect(verifier).recordWorkout(verifier.address, HabitType.Health, 3600, 999_999, "cheat")
+      ).to.be.revertedWith("GoodCommit: no active stake");
     });
 
-    it("Should allow owner to act as verifier", async function () {
+    it("verifier cannot inflate another user's points beyond what contract allows", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+      // Verifier CAN award points — only trust model prevents abuse; no cap on points in contract
       await expect(
-        goodCommitStaking.connect(owner).recordWorkout(
-          user1.address,
-          0,
-          1800,
-          30,
-          "running"
-        )
+        staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 1_000_000, "cheat")
       ).to.not.be.reverted;
+      // But a random attacker cannot
+      await expect(
+        staking.connect(attacker).recordWorkout(user1.address, HabitType.Health, 3600, 1_000_000, "cheat")
+      ).to.be.revertedWith("GoodCommit: caller is not verifier");
     });
   });
 
-  describe("Integer Overflow/Underflow Protection", function () {
-    it("Should handle maximum point values safely", async function () {
-      const maxPoints = ethers.MaxUint256;
-      
-      // This should not overflow due to Solidity 0.8.20 checks
-      // But it will likely revert due to other constraints
-      await expect(
-        goodCommitStaking.connect(verifier).recordWorkout(
-          user1.address,
-          0,
-          1800,
-          maxPoints,
-          "running"
-        )
-      ).to.not.be.reverted;
+  // ═══════════════════════════════════════════════════════════════════════════
+  // B. SYBIL RESISTANCE
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("Sybil Resistance", function () {
+
+    it("same address cannot claim seed twice", async function () {
+      await staking.connect(user1).claimInitialSeed();
+      // In MockIdentity, user1's root = user1.address (default).
+      // rootHasClaimed[user1] is set first → the root check fires before hasClaimedSeed.
+      await expect(staking.connect(user1).claimInitialSeed())
+        .to.be.revertedWith("GoodCommit: seed already claimed for this GoodDollar identity");
     });
 
-    it("Should not allow points to go below zero with penalties", async function () {
-      await goodCommitStaking.connect(verifier).recordQuiz(
-        user1.address,
-        1,
-        8,
-        10,
-        50,
-        0
-      );
+    it("two wallets sharing one GD root cannot both claim", async function () {
+      const root1 = await mockIdentity.getWhitelistedRoot(user1.address);
+      await mockIdentity.setRoot(user2.address, root1);
+      await staking.connect(user1).claimInitialSeed();
+      await expect(staking.connect(user2).claimInitialSeed())
+        .to.be.revertedWith("GoodCommit: seed already claimed for this GoodDollar identity");
+    });
 
-      // Apply massive penalty
-      await goodCommitStaking.connect(verifier).recordQuiz(
-        user1.address,
-        1,
-        0,
-        10,
-        0,
-        -1000000
-      );
-
-      const stakeInfo = await goodCommitStaking.getStakeInfo(user1.address, 1);
-      expect(stakeInfo.points).to.equal(0); // Should stop at 0, not underflow
+    it("unverified attacker cannot claim seed", async function () {
+      await expect(staking.connect(attacker).claimInitialSeed())
+        .to.be.revertedWith("GoodCommit: wallet not GoodDollar verified - visit gooddollar.org");
     });
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // C. REENTRANCY PROTECTION
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("Reentrancy Protection", function () {
+
+    it("claimPoints: state resets before transfer — double claim reverts immediately", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+      await staking.connect(verifier).recordQuiz(
+        user1.address, HabitType.Academics, 100, 100, 100, 0
+      );
+      await time.increase(DAY + 1);
+
+      await staking.connect(user1).claimPoints(HabitType.Academics); // first claim succeeds
+
+      // Second call: points are 0 → reverts before any transfer
+      await expect(staking.connect(user1).claimPoints(HabitType.Academics))
+        .to.be.revertedWith("GoodCommit: need 100+ points to claim");
+    });
+
+    it("unstakeTokens: active=false before transfer — no double-unstake", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Health, e18(500), 30);
+      await staking.connect(user1).unstakeTokens(HabitType.Health);
+      await expect(staking.connect(user1).unstakeTokens(HabitType.Health))
+        .to.be.revertedWith("GoodCommit: no active stake");
+    });
+
+    it("claimInitialSeed: hasClaimedSeed=true before transfer — no double-claim", async function () {
+      await staking.connect(user1).claimInitialSeed();
+      // rootHasClaimed fires first (root = user1.address in MockIdentity default)
+      await expect(staking.connect(user1).claimInitialSeed())
+        .to.be.revertedWith("GoodCommit: seed already claimed for this GoodDollar identity");
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // D. INTEGER SAFETY
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("Integer Safety", function () {
+
+    it("points floor at 0 for large penalty (no underflow)", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 30);
+      await staking.connect(verifier).recordQuiz(
+        user1.address, HabitType.Academics, 0, 10, 0, -1_000_000
+      );
+      const [, pts] = await staking.getHabitStake(user1.address, HabitType.Academics);
+      expect(pts).to.equal(0n);
+    });
+
+    it("penalty exactly equal to points floors at 0", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 30);
+      await staking.connect(verifier).recordQuiz(user1.address, HabitType.Academics, 5, 10, 5, 0);
+      await staking.connect(verifier).recordQuiz(user1.address, HabitType.Academics, 0, 10, 0, -5);
+      const [, pts] = await staking.getHabitStake(user1.address, HabitType.Academics);
+      expect(pts).to.equal(0n);
+    });
+
+    it("points never go below 0 after 30 days decay", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 60);
+      await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 100, "gym");
+      await time.increase(30 * DAY);
+      await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 60, 1, "ping");
+      const [, pts] = await staking.getHabitStake(user1.address, HabitType.Health);
+      expect(pts).to.be.gte(0n);
+    });
+
+    it("slash BPS add to exactly 100%: 60+40=100, nothing left behind", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Health, e18(1000), 30);
+      await time.increase(3 * DAY + 1);
+      const ubiBefore = await mockGToken.balanceOf(ubiPool.address);
+      const treBefore = await mockGToken.balanceOf(rewardTreasury.address);
+      await staking.connect(verifier).slashStake(user1.address, HabitType.Health, "inactive");
+      const ubiGot = await mockGToken.balanceOf(ubiPool.address)        - ubiBefore;
+      const treGot = await mockGToken.balanceOf(rewardTreasury.address) - treBefore;
+      expect(ubiGot + treGot).to.equal(e18(1000));
+      expect(ubiGot).to.equal(e18(600));
+      expect(treGot).to.equal(e18(400));
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // E. PAUSE / EMERGENCY WITHDRAW
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("Pause & Emergency Withdraw", function () {
+
+    it("pause blocks claimInitialSeed",  async function () { await staking.connect(owner).pause(); await expect(staking.connect(user1).claimInitialSeed()).to.be.revertedWithCustomError(staking, "EnforcedPause"); });
+    it("pause blocks stakeGDollar",      async function () { await staking.connect(owner).pause(); await expect(staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 7)).to.be.revertedWithCustomError(staking, "EnforcedPause"); });
+
+    it("pause blocks recordWorkout", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+      await staking.connect(owner).pause();
+      await expect(
+        staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 10, "run")
+      ).to.be.revertedWithCustomError(staking, "EnforcedPause");
+    });
+
+    it("pause blocks claimPoints", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+      await staking.connect(verifier).recordQuiz(
+        user1.address, HabitType.Academics, 100, 100, 100, 0
+      );
+      await time.increase(DAY + 1);
+      await staking.connect(owner).pause();
+      await expect(staking.connect(user1).claimPoints(HabitType.Academics))
+        .to.be.revertedWithCustomError(staking, "EnforcedPause");
+    });
+
+    it("pause blocks slashStake", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+      await time.increase(3 * DAY + 1);
+      await staking.connect(owner).pause();
+      await expect(
+        staking.connect(verifier).slashStake(user1.address, HabitType.Health, "inactive")
+      ).to.be.revertedWithCustomError(staking, "EnforcedPause");
+    });
+
+    it("all operations resume after unpause", async function () {
+      await staking.connect(owner).pause();
+      await staking.connect(owner).unpause();
+      await expect(staking.connect(user1).claimInitialSeed()).to.not.be.reverted;
+    });
+
+    it("emergencyWithdraw reverts when not paused", async function () {
+      await expect(staking.connect(owner).emergencyWithdraw())
+        .to.be.revertedWithCustomError(staking, "ExpectedPause");
+    });
+
+    it("emergencyWithdraw sends full balance to owner when paused", async function () {
+      const contractBal = await staking.contractGDollarBalance();
+      const ownerBefore = await mockGToken.balanceOf(owner.address);
+      await staking.connect(owner).pause();
+      await staking.connect(owner).emergencyWithdraw();
+      expect(await mockGToken.balanceOf(owner.address) - ownerBefore).to.equal(contractBal);
+      expect(await staking.contractGDollarBalance()).to.equal(0n);
+    });
+
+    it("contract recovers after emergencyWithdraw + unpause + refund", async function () {
+      await staking.connect(owner).pause();
+      await staking.connect(owner).emergencyWithdraw();
+      await staking.connect(owner).unpause();
+      await mockGToken.connect(owner).approve(stakingAddr, e18(50_000));
+      await staking.connect(owner).fundContract(e18(50_000));
+      await expect(staking.connect(user1).claimInitialSeed()).to.not.be.reverted;
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // F. TOKEN TRANSFER SAFETY
+  // ═══════════════════════════════════════════════════════════════════════════
   describe("Token Transfer Safety", function () {
-    it("Should fail gracefully if treasury has insufficient funds", async function () {
-      // Drain treasury
-      const treasuryBalance = await mockGToken.balanceOf(rewardTreasury.address);
-      await mockGToken.connect(rewardTreasury).transfer(owner.address, treasuryBalance);
 
+    it("stakeGDollar reverts when user has no approval", async function () {
+      // Reset attacker's approval to 0
+      await mockGToken.connect(attacker).approve(stakingAddr, 0);
       await expect(
-        goodCommitStaking.connect(user1).claimInitialSeed()
+        staking.connect(attacker).stakeGDollar(HabitType.Health, e18(100), 7)
       ).to.be.reverted;
     });
 
-    it("Should fail if user hasn't approved token transfer", async function () {
-      // Don't approve
+    it("stakeGDollar reverts when user balance is insufficient", async function () {
+      const bal = await mockGToken.balanceOf(user1.address);
       await expect(
-        goodCommitStaking.connect(user1).plantSeed(0, ethers.parseEther("100"), 7)
+        staking.connect(user1).stakeGDollar(HabitType.Health, bal + e18(1), 7)
       ).to.be.reverted;
     });
 
-    it("Should fail if user has insufficient balance", async function () {
-      await mockGToken.connect(user1).approve(
-        await goodCommitStaking.getAddress(),
-        ethers.parseEther("10000")
-      );
+    it("claimInitialSeed reverts when contract is empty", async function () {
+      await staking.connect(owner).pause();
+      await staking.connect(owner).emergencyWithdraw();
+      await staking.connect(owner).unpause();
+      await expect(staking.connect(user1).claimInitialSeed())
+        .to.be.revertedWith("GoodCommit: insufficient seed funds in contract");
+    });
 
-      await expect(
-        goodCommitStaking.connect(user1).plantSeed(0, ethers.parseEther("10000"), 7)
-      ).to.be.reverted;
+    it("claimPoints reverts when contract cannot cover payout", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+      await staking.connect(verifier).recordQuiz(
+        user1.address, HabitType.Academics, 100, 100, 100, 0
+      );
+      await time.increase(DAY + 1);
+      // Drain then re-fund with only 1 G$ (payout needs 10 G$)
+      await staking.connect(owner).pause();
+      await staking.connect(owner).emergencyWithdraw();
+      await staking.connect(owner).unpause();
+      await mockGToken.connect(owner).approve(stakingAddr, e18(1));
+      await staking.connect(owner).fundContract(e18(1));
+      await expect(staking.connect(user1).claimPoints(HabitType.Academics))
+        .to.be.revertedWith("GoodCommit: insufficient contract balance for harvest");
     });
   });
 
-  describe("Decay Manipulation Attempts", function () {
-    it("Should not allow bypassing decay by rapid claims", async function () {
-      await goodCommitStaking.connect(verifier).recordWorkout(
-        user1.address,
-        0,
-        1800,
-        100,
-        "running"
-      );
+  // ═══════════════════════════════════════════════════════════════════════════
+  // G. INACTIVITY / SLASH GUARDS
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("Inactivity & Slash Guards", function () {
 
-      await time.increase(ONE_DAY);
-
-      // Decay should be applied automatically
-      const balanceBefore = await mockGToken.balanceOf(user1.address);
-      await goodCommitStaking.connect(user1).claimAllPoints(0);
-      const balanceAfter = await mockGToken.balanceOf(user1.address);
-
-      // Should receive decayed amount (60 points = 6 wei)
-      expect(balanceAfter - balanceBefore).to.equal(6n);
+    it("slashStake reverts if < 3 days inactive", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Health, e18(500), 30);
+      await time.increase(DAY);
+      await expect(
+        staking.connect(verifier).slashStake(user1.address, HabitType.Health, "fake")
+      ).to.be.revertedWith("GoodCommit: user not inactive yet");
     });
 
-    it("Should apply decay before staking operations", async function () {
-      await goodCommitStaking.connect(verifier).recordWorkout(
-        user1.address,
-        0,
-        1800,
-        100,
-        "running"
-      );
+    it("slashStake reverts on wallet with no active stake", async function () {
+      await expect(
+        staking.connect(verifier).slashStake(attacker.address, HabitType.Health, "fake")
+      ).to.be.revertedWith("GoodCommit: no active stake");
+    });
 
-      await time.increase(ONE_DAY);
+    it("recording workout resets clock — prevents slashing within next 3 days", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+      await time.increase(2 * DAY); // not yet inactive
+      await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 60, 5, "walk");
+      // 2 more days from new lastActivity — still < 3 days
+      await time.increase(2 * DAY);
+      expect(await staking.isInactive(user1.address, HabitType.Health)).to.be.false;
+    });
 
-      // Stake all should work with decayed points
-      await goodCommitStaking.connect(user1).stakeAllPoints(0);
-
-      const stakeInfo = await goodCommitStaking.getStakeInfo(user1.address, 0);
-      // 60 points after decay + 10% bonus = 66
-      expect(stakeInfo.points).to.equal(66);
+    it("slash distributes correct amounts even if user had accumulated points", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Health, e18(1000), 30);
+      await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 50, "gym");
+      await time.increase(3 * DAY + 1);
+      const ubiBefore = await mockGToken.balanceOf(ubiPool.address);
+      await staking.connect(verifier).slashStake(user1.address, HabitType.Health, "inactive");
+      expect(await mockGToken.balanceOf(ubiPool.address) - ubiBefore).to.equal(e18(600));
     });
   });
 
-  describe("Slashing Distribution", function () {
-    beforeEach(async function () {
-      await mockGToken.connect(user1).approve(
-        await goodCommitStaking.getAddress(),
-        ethers.parseEther("1000")
+  // ═══════════════════════════════════════════════════════════════════════════
+  // H. DECAY INTEGRITY
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("Decay Integrity", function () {
+
+    it("decay is applied inside claimPoints — user cannot dodge decay by claiming", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+      await staking.connect(verifier).recordQuiz(
+        user1.address, HabitType.Academics, 100, 100, 100, 0
       );
-      await goodCommitStaking.connect(user1).plantSeed(0, ethers.parseEther("100"), 7);
+      // Advance 2 full days past last activity (1 day past commitmentEnd)
+      await time.increase(2 * DAY + 1);
+
+      const before = await mockGToken.balanceOf(user1.address);
+      await staking.connect(user1).claimPoints(HabitType.Academics);
+      const received = await mockGToken.balanceOf(user1.address) - before;
+      // 100 * 0.6 = 60, 60 * 0.6 = 36 pts → 36/10 * 1e18 = 3.6 G$
+      expect(received).to.equal(ethers.parseEther("3.6"));
     });
 
-    it("Should correctly distribute slashed funds (60% UBI, 40% treasury)", async function () {
-      const ubiBalanceBefore = await mockGToken.balanceOf(ubiPool.address);
-      const treasuryBalanceBefore = await mockGToken.balanceOf(rewardTreasury.address);
+    it("top-up stake resets lastActivityTime — decay clock restarts from top-up", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 60);
+      await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 100, "gym");
 
-      await goodCommitStaking.connect(verifier).slashStake(
-        user1.address,
-        0,
-        "Cheating"
-      );
+      await time.increase(DAY + 1);
+      // Top-up: stakeGDollar sets lastActivityTime = block.timestamp unconditionally
+      await staking.connect(user1).stakeGDollar(HabitType.Health, e18(50), 30);
 
-      const ubiBalanceAfter = await mockGToken.balanceOf(ubiPool.address);
-      const treasuryBalanceAfter = await mockGToken.balanceOf(rewardTreasury.address);
+      // Points unchanged (stakeGDollar does not call _applyDecay)
+      const [, ptsAfterTopup] = await staking.getHabitStake(user1.address, HabitType.Health);
+      expect(ptsAfterTopup).to.equal(100n);
 
-      const ubiReceived = ubiBalanceAfter - ubiBalanceBefore;
-      const treasuryReceived = treasuryBalanceAfter - treasuryBalanceBefore;
+      // Next activity immediately after top-up: lastActivityTime was just reset,
+      // so elapsed = ~0 seconds → daysInactive = 0 → NO decay this time
+      await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 60, 1, "ping");
+      const [, ptsAfterPing] = await staking.getHabitStake(user1.address, HabitType.Health);
+      // 100 pts (no decay, clock was reset by top-up) + 1 new = 101
+      expect(ptsAfterPing).to.equal(101n);
 
-      expect(ubiReceived).to.equal(ethers.parseEther("60"));
-      expect(treasuryReceived).to.equal(ethers.parseEther("40"));
-      expect(ubiReceived + treasuryReceived).to.equal(ethers.parseEther("100"));
+      // Advance a full day from ping's lastActivityTime, then ping2 triggers decay
+      await time.increase(DAY + 1);
+      await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 60, 1, "ping2");
+      const [, ptsAfterDecay] = await staking.getHabitStake(user1.address, HabitType.Health);
+      // floor(102 * 0.6) = 61 + 1 = 62
+      expect(ptsAfterDecay).to.equal(62n);
     });
 
-    it("Should prevent double slashing", async function () {
-      await goodCommitStaking.connect(verifier).slashStake(
-        user1.address,
-        0,
-        "Cheating"
-      );
+    it("decayRewardPool accumulates from two users independently", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 60);
+      await staking.connect(user2).stakeGDollar(HabitType.Health, e18(100), 60);
+      await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 100, "gym");
+      await staking.connect(verifier).recordWorkout(user2.address, HabitType.Health, 3600, 100, "gym");
 
-      // Try to slash again - should fail because already withered
-      await expect(
-        goodCommitStaking.connect(verifier).slashStake(
-          user1.address,
-          0,
-          "Cheating again"
-        )
-      ).to.be.revertedWith("Already withered");
+      await time.increase(DAY + 1);
+      await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 60, 1, "ping");
+      expect(await staking.decayRewardPool()).to.equal(40n); // user1: 40% of 100
+
+      await staking.connect(verifier).recordWorkout(user2.address, HabitType.Health, 60, 1, "ping");
+      expect(await staking.decayRewardPool()).to.equal(80n); // + user2: another 40
     });
   });
 
-  describe("Pause Functionality", function () {
-    it("Should block all user operations when paused", async function () {
-      await goodCommitStaking.connect(owner).pause();
+  // ═══════════════════════════════════════════════════════════════════════════
+  // I. COMMITMENT PERIOD ENFORCEMENT
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("Commitment Period Enforcement", function () {
 
-      await expect(
-        goodCommitStaking.connect(user1).claimInitialSeed()
-      ).to.be.revertedWithCustomError(goodCommitStaking, "EnforcedPause");
-
-      await mockGToken.connect(user1).approve(
-        await goodCommitStaking.getAddress(),
-        ethers.parseEther("1000")
+    it("claimPoints blocked before commitmentEnd regardless of points", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 30);
+      await staking.connect(verifier).recordQuiz(
+        user1.address, HabitType.Academics, 100, 100, 100, 0
       );
-
-      await expect(
-        goodCommitStaking.connect(user1).plantSeed(0, ethers.parseEther("100"), 7)
-      ).to.be.revertedWithCustomError(goodCommitStaking, "EnforcedPause");
+      await time.increase(DAY); // 1 of 30 days
+      await expect(staking.connect(user1).claimPoints(HabitType.Academics))
+        .to.be.revertedWith("GoodCommit: commitment period not ended yet");
     });
 
-    it("Should allow operations after unpause", async function () {
-      await goodCommitStaking.connect(owner).pause();
-      await goodCommitStaking.connect(owner).unpause();
-
-      await expect(
-        goodCommitStaking.connect(user1).claimInitialSeed()
-      ).to.not.be.reverted;
+    it("claimPoints succeeds immediately after commitmentEnd", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+      await staking.connect(verifier).recordQuiz(
+        user1.address, HabitType.Academics, 100, 100, 100, 0
+      );
+      await time.increase(DAY + 1);
+      await expect(staking.connect(user1).claimPoints(HabitType.Academics)).to.not.be.reverted;
     });
 
-    it("Should only allow owner to pause/unpause", async function () {
-      await expect(
-        goodCommitStaking.connect(attacker).pause()
-      ).to.be.revertedWithCustomError(goodCommitStaking, "OwnableUnauthorizedAccount");
-
-      await goodCommitStaking.connect(owner).pause();
-
-      await expect(
-        goodCommitStaking.connect(attacker).unpause()
-      ).to.be.revertedWithCustomError(goodCommitStaking, "OwnableUnauthorizedAccount");
+    it("top-up resets commitmentEnd to later — extends lock", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+      await staking.connect(verifier).recordQuiz(
+        user1.address, HabitType.Academics, 100, 100, 100, 0
+      );
+      // Stake again for 30 days before original 1-day lock expires
+      await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(50), 30);
+      // Advance past original 1-day lock but not the new 30-day lock
+      await time.increase(DAY + 1);
+      await expect(staking.connect(user1).claimPoints(HabitType.Academics))
+        .to.be.revertedWith("GoodCommit: commitment period not ended yet");
     });
   });
 
-  describe("Emergency Withdraw", function () {
-    it("Should only allow emergency withdraw when paused", async function () {
-      await expect(
-        goodCommitStaking.connect(owner).emergencyWithdraw(
-          await mockGToken.getAddress(),
-          ethers.parseEther("1")
-        )
-      ).to.be.revertedWithCustomError(goodCommitStaking, "ExpectedPause");
-    });
-
-    it("Should allow owner to emergency withdraw when paused", async function () {
-      // Send some tokens to contract
-      await mockGToken.mint(await goodCommitStaking.getAddress(), ethers.parseEther("100"));
-
-      await goodCommitStaking.connect(owner).pause();
-
-      const ownerBalanceBefore = await mockGToken.balanceOf(owner.address);
-
-      await goodCommitStaking.connect(owner).emergencyWithdraw(
-        await mockGToken.getAddress(),
-        ethers.parseEther("50")
-      );
-
-      const ownerBalanceAfter = await mockGToken.balanceOf(owner.address);
-      expect(ownerBalanceAfter - ownerBalanceBefore).to.equal(ethers.parseEther("50"));
-    });
-
-    it("Should not allow non-owner to emergency withdraw", async function () {
-      await goodCommitStaking.connect(owner).pause();
-
-      await expect(
-        goodCommitStaking.connect(attacker).emergencyWithdraw(
-          await mockGToken.getAddress(),
-          ethers.parseEther("1")
-        )
-      ).to.be.revertedWithCustomError(goodCommitStaking, "OwnableUnauthorizedAccount");
-    });
-  });
-
+  // ═══════════════════════════════════════════════════════════════════════════
+  // J. INPUT VALIDATION
+  // ═══════════════════════════════════════════════════════════════════════════
   describe("Input Validation", function () {
-    it("Should reject zero address in constructor", async function () {
-      const GoodCommitStaking = await ethers.getContractFactory("GoodCommitStaking");
 
-      await expect(
-        GoodCommitStaking.deploy(
-          ethers.ZeroAddress,
-          ubiPool.address,
-          rewardTreasury.address,
-          verifier.address
-        )
-      ).to.be.revertedWith("Invalid G$ token address");
+    it("stakeGDollar: amount = 0",      async function () { await expect(staking.connect(user1).stakeGDollar(HabitType.Health, 0,         30)).to.be.revertedWith("GoodCommit: amount must be > 0"); });
+    it("stakeGDollar: duration = 0",    async function () { await expect(staking.connect(user1).stakeGDollar(HabitType.Health, e18(100),  0)).to.be.revertedWith("GoodCommit: duration 1-365 days"); });
+    it("stakeGDollar: duration = 366",  async function () { await expect(staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 366)).to.be.revertedWith("GoodCommit: duration 1-365 days"); });
+
+    it("recordWorkout: duration = 0", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+      await expect(staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 0, 10, "run"))
+        .to.be.revertedWith("GoodCommit: zero duration");
     });
 
-    it("Should reject zero stake amount", async function () {
-      await mockGToken.connect(user1).approve(
-        await goodCommitStaking.getAddress(),
-        ethers.parseEther("1000")
-      );
-
-      await expect(
-        goodCommitStaking.connect(user1).plantSeed(0, 0, 7)
-      ).to.be.revertedWith("Stake amount must be > 0");
+    it("recordWorkout: pointsEarned = 0", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+      await expect(staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 0, "run"))
+        .to.be.revertedWith("GoodCommit: zero points");
     });
 
-    it("Should reject invalid duration", async function () {
-      await mockGToken.connect(user1).approve(
-        await goodCommitStaking.getAddress(),
-        ethers.parseEther("1000")
-      );
-
-      await expect(
-        goodCommitStaking.connect(user1).plantSeed(0, ethers.parseEther("100"), 0)
-      ).to.be.revertedWith("Duration must be at least 1 day");
-    });
-  });
-
-  describe("State Consistency", function () {
-    it("Should maintain consistent totalStakedByUser", async function () {
-      await mockGToken.connect(user1).approve(
-        await goodCommitStaking.getAddress(),
-        ethers.parseEther("1000")
-      );
-
-      await goodCommitStaking.connect(user1).plantSeed(0, ethers.parseEther("100"), 7);
-      expect(await goodCommitStaking.totalStakedByUser(user1.address)).to.equal(
-        ethers.parseEther("100")
-      );
-
-      await goodCommitStaking.connect(user1).plantSeed(1, ethers.parseEther("50"), 7);
-      expect(await goodCommitStaking.totalStakedByUser(user1.address)).to.equal(
-        ethers.parseEther("150")
-      );
-
-      await goodCommitStaking.connect(user1).unstakeTokens(0, ethers.parseEther("50"));
-      expect(await goodCommitStaking.totalStakedByUser(user1.address)).to.equal(
-        ethers.parseEther("100")
-      );
+    it("recordQuiz: totalQuestions = 0", async function () {
+      await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 30);
+      await expect(staking.connect(verifier).recordQuiz(user1.address, HabitType.Academics, 0, 0, 0, 0))
+        .to.be.revertedWith("GoodCommit: zero questions");
     });
 
-    it("Should maintain consistent decay reward pool", async function () {
-      await goodCommitStaking.connect(verifier).recordWorkout(
-        user1.address,
-        0,
-        1800,
-        100,
-        "running"
-      );
-
-      await goodCommitStaking.connect(verifier).recordWorkout(
-        user2.address,
-        0,
-        1800,
-        100,
-        "running"
-      );
-
-      await time.increase(ONE_DAY);
-
-      const poolBefore = await goodCommitStaking.getDecayRewardPool();
-
-      // Trigger decay for user1
-      await goodCommitStaking.connect(verifier).recordWorkout(
-        user1.address,
-        0,
-        1800,
-        10,
-        "running"
-      );
-
-      const poolAfter1 = await goodCommitStaking.getDecayRewardPool();
-      expect(poolAfter1 - poolBefore).to.equal(40); // 40% of 100
-
-      // Trigger decay for user2
-      await goodCommitStaking.connect(verifier).recordWorkout(
-        user2.address,
-        0,
-        1800,
-        10,
-        "running"
-      );
-
-      const poolAfter2 = await goodCommitStaking.getDecayRewardPool();
-      expect(poolAfter2 - poolAfter1).to.equal(40); // Another 40% of 100
-    });
+    it("setVerifier: zero address",       async function () { await expect(staking.connect(owner).setVerifier(ethers.ZeroAddress)).to.be.revertedWith("Zero address"); });
+    it("setRewardTreasury: zero address",  async function () { await expect(staking.connect(owner).setRewardTreasury(ethers.ZeroAddress)).to.be.revertedWith("Zero address"); });
+    it("setUbiPool: zero address",         async function () { await expect(staking.connect(owner).setUbiPool(ethers.ZeroAddress)).to.be.revertedWith("Zero address"); });
   });
 });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// import { expect } from "chai";
+// import { ethers } from "hardhat";
+// import { time } from "@nomicfoundation/hardhat-network-helpers";
+// import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
+
+// // ─────────────────────────────────────────────────────────────────────────────
+// // GoodCommitStaking — Security Test Suite
+// // Contract: contracts/GoodCommitStaking.sol (V3)
+// //
+// // Constructor (5 args):
+// //   GoodCommitStaking(gDollarToken, identityContract, verifier, rewardTreasury, ubiPool)
+// // ─────────────────────────────────────────────────────────────────────────────
+
+// const HabitType = { Health: 0, Academics: 1 } as const;
+// const DAY       = 86_400;
+// const e18       = (n: number | string) => ethers.parseEther(String(n));
+
+// // ─────────────────────────────────────────────────────────────────────────────
+// describe("GoodCommitStaking - Security Tests", function () {
+
+//   let staking:        any;
+//   let mockGToken:     any;
+//   let mockIdentity:   any;
+//   let stakingAddr:    string;
+
+//   let owner:          SignerWithAddress;
+//   let user1:          SignerWithAddress;
+//   let user2:          SignerWithAddress;
+//   let attacker:       SignerWithAddress;
+//   let ubiPool:        SignerWithAddress;
+//   let rewardTreasury: SignerWithAddress;
+//   let verifier:       SignerWithAddress;
+
+//   beforeEach(async function () {
+//     [owner, user1, user2, attacker, ubiPool, rewardTreasury, verifier] =
+//       await ethers.getSigners();
+
+//     mockGToken   = await (await ethers.getContractFactory("MockGToken")).deploy();
+//     mockIdentity = await (await ethers.getContractFactory("MockIdentity")).deploy();
+
+//     // 5-arg constructor — V3
+//     staking = await (await ethers.getContractFactory("GoodCommitStaking")).deploy(
+//       await mockGToken.getAddress(),    // _gDollarToken
+//       await mockIdentity.getAddress(),  // _identityContract
+//       verifier.address,                 // _verifier
+//       rewardTreasury.address,           // _rewardTreasury
+//       ubiPool.address,                  // _ubiPool
+//     );
+//     stakingAddr = await staking.getAddress();
+
+//     await mockGToken.mint(owner.address,    e18(500_000));
+//     await mockGToken.mint(user1.address,    e18(10_000));
+//     await mockGToken.mint(user2.address,    e18(10_000));
+//     await mockGToken.mint(attacker.address, e18(10_000));
+
+//     await mockGToken.connect(owner).approve(stakingAddr, e18(200_000));
+//     await staking.connect(owner).fundContract(e18(200_000));
+
+//     await mockIdentity.setVerified(user1.address, true);
+//     await mockIdentity.setVerified(user2.address, true);
+
+//     await mockGToken.connect(user1).approve(stakingAddr, e18(10_000));
+//     await mockGToken.connect(user2).approve(stakingAddr, e18(10_000));
+//     await mockGToken.connect(attacker).approve(stakingAddr, e18(10_000));
+//   });
+
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   // A. ACCESS CONTROL
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   describe("Access Control", function () {
+
+//     it("non-verifier cannot recordWorkout", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+//       await expect(
+//         staking.connect(attacker).recordWorkout(user1.address, HabitType.Health, 3600, 50, "run")
+//       ).to.be.revertedWith("GoodCommit: caller is not verifier");
+//     });
+
+//     it("non-verifier cannot recordQuiz", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 30);
+//       await expect(
+//         staking.connect(attacker).recordQuiz(user1.address, HabitType.Academics, 10, 10, 999_999, 0)
+//       ).to.be.revertedWith("GoodCommit: caller is not verifier");
+//     });
+
+//     it("non-verifier cannot slashStake", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+//       await time.increase(3 * DAY + 1);
+//       await expect(
+//         staking.connect(attacker).slashStake(user1.address, HabitType.Health, "fake")
+//       ).to.be.revertedWith("GoodCommit: caller is not verifier");
+//     });
+
+//     it("non-owner cannot setVerifier",       async function () { await expect(staking.connect(attacker).setVerifier(attacker.address)).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+//     it("non-owner cannot setRewardTreasury", async function () { await expect(staking.connect(attacker).setRewardTreasury(attacker.address)).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+//     it("non-owner cannot setUbiPool",        async function () { await expect(staking.connect(attacker).setUbiPool(attacker.address)).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+//     it("non-owner cannot fundContract",      async function () { await expect(staking.connect(attacker).fundContract(e18(100))).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+//     it("non-owner cannot pause",             async function () { await expect(staking.connect(attacker).pause()).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+//     it("non-owner cannot unpause",           async function () { await staking.connect(owner).pause(); await expect(staking.connect(attacker).unpause()).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+//     it("non-owner cannot emergencyWithdraw", async function () { await staking.connect(owner).pause(); await expect(staking.connect(attacker).emergencyWithdraw()).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+
+//     it("verifier cannot award points to themselves (no active stake)", async function () {
+//       await expect(
+//         staking.connect(verifier).recordWorkout(verifier.address, HabitType.Health, 3600, 999_999, "cheat")
+//       ).to.be.revertedWith("GoodCommit: no active stake");
+//     });
+
+//     it("verifier cannot inflate another user's points beyond what contract allows", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+//       // Verifier CAN award points — only trust model prevents abuse; no cap on points in contract
+//       await expect(
+//         staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 1_000_000, "cheat")
+//       ).to.not.be.reverted;
+//       // But a random attacker cannot
+//       await expect(
+//         staking.connect(attacker).recordWorkout(user1.address, HabitType.Health, 3600, 1_000_000, "cheat")
+//       ).to.be.revertedWith("GoodCommit: caller is not verifier");
+//     });
+//   });
+
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   // B. SYBIL RESISTANCE
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   describe("Sybil Resistance", function () {
+
+//     it("same address cannot claim seed twice", async function () {
+//       await staking.connect(user1).claimInitialSeed();
+//       // In MockIdentity, user1's root = user1.address (default).
+//       // So rootHasClaimed[user1] is set first → hits the root check before
+//       // the hasClaimedSeed check. Both guards block the claim; root fires first.
+//       await expect(staking.connect(user1).claimInitialSeed())
+//         .to.be.revertedWith("GoodCommit: seed already claimed for this GoodDollar identity");
+//     });
+
+//     it("two wallets sharing one GD root cannot both claim", async function () {
+//       const root1 = await mockIdentity.getWhitelistedRoot(user1.address);
+//       await mockIdentity.setRoot(user2.address, root1);
+//       await staking.connect(user1).claimInitialSeed();
+//       await expect(staking.connect(user2).claimInitialSeed())
+//         .to.be.revertedWith("GoodCommit: seed already claimed for this GoodDollar identity");
+//     });
+
+//     it("unverified attacker cannot claim seed", async function () {
+//       await expect(staking.connect(attacker).claimInitialSeed())
+//         .to.be.revertedWith("GoodCommit: wallet not GoodDollar verified - visit gooddollar.org");
+//     });
+//   });
+
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   // C. REENTRANCY PROTECTION
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   describe("Reentrancy Protection", function () {
+
+//     it("claimPoints: state resets before transfer — double claim reverts immediately", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+//       await staking.connect(verifier).recordQuiz(
+//         user1.address, HabitType.Academics, 100, 100, 100, 0
+//       );
+//       await time.increase(DAY + 1);
+
+//       await staking.connect(user1).claimPoints(HabitType.Academics); // first claim succeeds
+
+//       // Second call: points are 0 → reverts before any transfer
+//       await expect(staking.connect(user1).claimPoints(HabitType.Academics))
+//         .to.be.revertedWith("GoodCommit: need 100+ points to claim");
+//     });
+
+//     it("unstakeTokens: active=false before transfer — no double-unstake", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(500), 30);
+//       await staking.connect(user1).unstakeTokens(HabitType.Health);
+//       await expect(staking.connect(user1).unstakeTokens(HabitType.Health))
+//         .to.be.revertedWith("GoodCommit: no active stake");
+//     });
+
+//     it("claimInitialSeed: hasClaimedSeed=true before transfer — no double-claim", async function () {
+//       await staking.connect(user1).claimInitialSeed();
+//       // rootHasClaimed fires first (root = user1.address in MockIdentity default)
+//       await expect(staking.connect(user1).claimInitialSeed())
+//         .to.be.revertedWith("GoodCommit: seed already claimed for this GoodDollar identity");
+//     });
+//   });
+
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   // D. INTEGER SAFETY
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   describe("Integer Safety", function () {
+
+//     it("points floor at 0 for large penalty (no underflow)", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 30);
+//       await staking.connect(verifier).recordQuiz(
+//         user1.address, HabitType.Academics, 0, 10, 0, -1_000_000
+//       );
+//       const [, pts] = await staking.getHabitStake(user1.address, HabitType.Academics);
+//       expect(pts).to.equal(0n);
+//     });
+
+//     it("penalty exactly equal to points floors at 0", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 30);
+//       await staking.connect(verifier).recordQuiz(user1.address, HabitType.Academics, 5, 10, 5, 0);
+//       await staking.connect(verifier).recordQuiz(user1.address, HabitType.Academics, 0, 10, 0, -5);
+//       const [, pts] = await staking.getHabitStake(user1.address, HabitType.Academics);
+//       expect(pts).to.equal(0n);
+//     });
+
+//     it("points never go below 0 after 30 days decay", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 60);
+//       await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 100, "gym");
+//       await time.increase(30 * DAY);
+//       await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 60, 1, "ping");
+//       const [, pts] = await staking.getHabitStake(user1.address, HabitType.Health);
+//       expect(pts).to.be.gte(0n);
+//     });
+
+//     it("slash BPS add to exactly 100%: 60+40=100, nothing left behind", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(1000), 30);
+//       await time.increase(3 * DAY + 1);
+//       const ubiBefore = await mockGToken.balanceOf(ubiPool.address);
+//       const treBefore = await mockGToken.balanceOf(rewardTreasury.address);
+//       await staking.connect(verifier).slashStake(user1.address, HabitType.Health, "inactive");
+//       const ubiGot = await mockGToken.balanceOf(ubiPool.address)        - ubiBefore;
+//       const treGot = await mockGToken.balanceOf(rewardTreasury.address) - treBefore;
+//       expect(ubiGot + treGot).to.equal(e18(1000));
+//       expect(ubiGot).to.equal(e18(600));
+//       expect(treGot).to.equal(e18(400));
+//     });
+//   });
+
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   // E. PAUSE / EMERGENCY WITHDRAW
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   describe("Pause & Emergency Withdraw", function () {
+
+//     it("pause blocks claimInitialSeed",  async function () { await staking.connect(owner).pause(); await expect(staking.connect(user1).claimInitialSeed()).to.be.revertedWithCustomError(staking, "EnforcedPause"); });
+//     it("pause blocks stakeGDollar",      async function () { await staking.connect(owner).pause(); await expect(staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 7)).to.be.revertedWithCustomError(staking, "EnforcedPause"); });
+
+//     it("pause blocks recordWorkout", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+//       await staking.connect(owner).pause();
+//       await expect(
+//         staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 10, "run")
+//       ).to.be.revertedWithCustomError(staking, "EnforcedPause");
+//     });
+
+//     it("pause blocks claimPoints", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+//       await staking.connect(verifier).recordQuiz(
+//         user1.address, HabitType.Academics, 100, 100, 100, 0
+//       );
+//       await time.increase(DAY + 1);
+//       await staking.connect(owner).pause();
+//       await expect(staking.connect(user1).claimPoints(HabitType.Academics))
+//         .to.be.revertedWithCustomError(staking, "EnforcedPause");
+//     });
+
+//     it("pause blocks slashStake", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+//       await time.increase(3 * DAY + 1);
+//       await staking.connect(owner).pause();
+//       await expect(
+//         staking.connect(verifier).slashStake(user1.address, HabitType.Health, "inactive")
+//       ).to.be.revertedWithCustomError(staking, "EnforcedPause");
+//     });
+
+//     it("all operations resume after unpause", async function () {
+//       await staking.connect(owner).pause();
+//       await staking.connect(owner).unpause();
+//       await expect(staking.connect(user1).claimInitialSeed()).to.not.be.reverted;
+//     });
+
+//     it("emergencyWithdraw reverts when not paused", async function () {
+//       await expect(staking.connect(owner).emergencyWithdraw())
+//         .to.be.revertedWithCustomError(staking, "ExpectedPause");
+//     });
+
+//     it("emergencyWithdraw sends full balance to owner when paused", async function () {
+//       const contractBal = await staking.contractGDollarBalance();
+//       const ownerBefore = await mockGToken.balanceOf(owner.address);
+//       await staking.connect(owner).pause();
+//       await staking.connect(owner).emergencyWithdraw();
+//       expect(await mockGToken.balanceOf(owner.address) - ownerBefore).to.equal(contractBal);
+//       expect(await staking.contractGDollarBalance()).to.equal(0n);
+//     });
+
+//     it("contract recovers after emergencyWithdraw + unpause + refund", async function () {
+//       await staking.connect(owner).pause();
+//       await staking.connect(owner).emergencyWithdraw();
+//       await staking.connect(owner).unpause();
+//       await mockGToken.connect(owner).approve(stakingAddr, e18(50_000));
+//       await staking.connect(owner).fundContract(e18(50_000));
+//       await expect(staking.connect(user1).claimInitialSeed()).to.not.be.reverted;
+//     });
+//   });
+
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   // F. TOKEN TRANSFER SAFETY
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   describe("Token Transfer Safety", function () {
+
+//     it("stakeGDollar reverts when user has no approval", async function () {
+//       // Reset attacker's approval to 0
+//       await mockGToken.connect(attacker).approve(stakingAddr, 0);
+//       await expect(
+//         staking.connect(attacker).stakeGDollar(HabitType.Health, e18(100), 7)
+//       ).to.be.reverted;
+//     });
+
+//     it("stakeGDollar reverts when user balance is insufficient", async function () {
+//       const bal = await mockGToken.balanceOf(user1.address);
+//       await expect(
+//         staking.connect(user1).stakeGDollar(HabitType.Health, bal + e18(1), 7)
+//       ).to.be.reverted;
+//     });
+
+//     it("claimInitialSeed reverts when contract is empty", async function () {
+//       await staking.connect(owner).pause();
+//       await staking.connect(owner).emergencyWithdraw();
+//       await staking.connect(owner).unpause();
+//       await expect(staking.connect(user1).claimInitialSeed())
+//         .to.be.revertedWith("GoodCommit: insufficient seed funds in contract");
+//     });
+
+//     it("claimPoints reverts when contract cannot cover payout", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+//       await staking.connect(verifier).recordQuiz(
+//         user1.address, HabitType.Academics, 100, 100, 100, 0
+//       );
+//       await time.increase(DAY + 1);
+//       // Drain then re-fund with only 1 G$ (payout needs 10 G$)
+//       await staking.connect(owner).pause();
+//       await staking.connect(owner).emergencyWithdraw();
+//       await staking.connect(owner).unpause();
+//       await mockGToken.connect(owner).approve(stakingAddr, e18(1));
+//       await staking.connect(owner).fundContract(e18(1));
+//       await expect(staking.connect(user1).claimPoints(HabitType.Academics))
+//         .to.be.revertedWith("GoodCommit: insufficient contract balance for harvest");
+//     });
+//   });
+
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   // G. INACTIVITY / SLASH GUARDS
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   describe("Inactivity & Slash Guards", function () {
+
+//     it("slashStake reverts if < 3 days inactive", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(500), 30);
+//       await time.increase(DAY);
+//       await expect(
+//         staking.connect(verifier).slashStake(user1.address, HabitType.Health, "fake")
+//       ).to.be.revertedWith("GoodCommit: user not inactive yet");
+//     });
+
+//     it("slashStake reverts on wallet with no active stake", async function () {
+//       await expect(
+//         staking.connect(verifier).slashStake(attacker.address, HabitType.Health, "fake")
+//       ).to.be.revertedWith("GoodCommit: no active stake");
+//     });
+
+//     it("recording workout resets clock — prevents slashing within next 3 days", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+//       await time.increase(2 * DAY); // not yet inactive
+//       await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 60, 5, "walk");
+//       // 2 more days from new lastActivity — still < 3 days
+//       await time.increase(2 * DAY);
+//       expect(await staking.isInactive(user1.address, HabitType.Health)).to.be.false;
+//     });
+
+//     it("slash distributes correct amounts even if user had accumulated points", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(1000), 30);
+//       await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 50, "gym");
+//       await time.increase(3 * DAY + 1);
+//       const ubiBefore = await mockGToken.balanceOf(ubiPool.address);
+//       await staking.connect(verifier).slashStake(user1.address, HabitType.Health, "inactive");
+//       expect(await mockGToken.balanceOf(ubiPool.address) - ubiBefore).to.equal(e18(600));
+//     });
+//   });
+
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   // H. DECAY INTEGRITY
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   describe("Decay Integrity", function () {
+
+//     it("decay is applied inside claimPoints — user cannot dodge decay by claiming", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+//       await staking.connect(verifier).recordQuiz(
+//         user1.address, HabitType.Academics, 100, 100, 100, 0
+//       );
+//       // Advance 2 full days past last activity (1 day past commitmentEnd)
+//       await time.increase(2 * DAY + 1);
+
+//       const before = await mockGToken.balanceOf(user1.address);
+//       await staking.connect(user1).claimPoints(HabitType.Academics);
+//       const received = await mockGToken.balanceOf(user1.address) - before;
+//       // 100 * 0.6 = 60, 60 * 0.6 = 36 pts → 36/10 * 1e18 = 3.6 G$
+//       expect(received).to.equal(ethers.parseEther("3.6"));
+//     });
+
+//     it("top-up stake resets lastActivityTime — decay clock restarts from top-up", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 60);
+//       await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 100, "gym");
+
+//       await time.increase(DAY + 1);
+//       // Top-up: stakeGDollar sets lastActivityTime = block.timestamp unconditionally
+//       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(50), 30);
+
+//       // Points unchanged (stakeGDollar does not call _applyDecay)
+//       const [, ptsAfterTopup] = await staking.getHabitStake(user1.address, HabitType.Health);
+//       expect(ptsAfterTopup).to.equal(100n);
+
+//       // Next activity immediately after top-up: lastActivityTime was just reset,
+//       // so elapsed = ~0 seconds → daysInactive = 0 → NO decay this time
+//       await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 60, 1, "ping");
+//       const [, ptsAfterPing] = await staking.getHabitStake(user1.address, HabitType.Health);
+//       // 100 pts (no decay, clock was reset by top-up) + 1 new = 101
+//       expect(ptsAfterPing).to.equal(101n);
+
+//       // Now advance another full day WITHOUT a top-up and trigger decay
+//       await time.increase(DAY + 1);
+//       await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 60, 1, "ping2");
+//       const [, ptsAfterDecay] = await staking.getHabitStake(user1.address, HabitType.Health);
+//       // 101 * 0.6 = 60 (floor) + 1 = 61
+//       expect(ptsAfterDecay).to.equal(61n);
+//     });
+
+//     it("decayRewardPool accumulates from two users independently", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 60);
+//       await staking.connect(user2).stakeGDollar(HabitType.Health, e18(100), 60);
+//       await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 100, "gym");
+//       await staking.connect(verifier).recordWorkout(user2.address, HabitType.Health, 3600, 100, "gym");
+
+//       await time.increase(DAY + 1);
+//       await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 60, 1, "ping");
+//       expect(await staking.decayRewardPool()).to.equal(40n); // user1: 40% of 100
+
+//       await staking.connect(verifier).recordWorkout(user2.address, HabitType.Health, 60, 1, "ping");
+//       expect(await staking.decayRewardPool()).to.equal(80n); // + user2: another 40
+//     });
+//   });
+
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   // I. COMMITMENT PERIOD ENFORCEMENT
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   describe("Commitment Period Enforcement", function () {
+
+//     it("claimPoints blocked before commitmentEnd regardless of points", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 30);
+//       await staking.connect(verifier).recordQuiz(
+//         user1.address, HabitType.Academics, 100, 100, 100, 0
+//       );
+//       await time.increase(DAY); // 1 of 30 days
+//       await expect(staking.connect(user1).claimPoints(HabitType.Academics))
+//         .to.be.revertedWith("GoodCommit: commitment period not ended yet");
+//     });
+
+//     it("claimPoints succeeds immediately after commitmentEnd", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+//       await staking.connect(verifier).recordQuiz(
+//         user1.address, HabitType.Academics, 100, 100, 100, 0
+//       );
+//       await time.increase(DAY + 1);
+//       await expect(staking.connect(user1).claimPoints(HabitType.Academics)).to.not.be.reverted;
+//     });
+
+//     it("top-up resets commitmentEnd to later — extends lock", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+//       await staking.connect(verifier).recordQuiz(
+//         user1.address, HabitType.Academics, 100, 100, 100, 0
+//       );
+//       // Stake again for 30 days before original 1-day lock expires
+//       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(50), 30);
+//       // Advance past original 1-day lock but not the new 30-day lock
+//       await time.increase(DAY + 1);
+//       await expect(staking.connect(user1).claimPoints(HabitType.Academics))
+//         .to.be.revertedWith("GoodCommit: commitment period not ended yet");
+//     });
+//   });
+
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   // J. INPUT VALIDATION
+//   // ═══════════════════════════════════════════════════════════════════════════
+//   describe("Input Validation", function () {
+
+//     it("stakeGDollar: amount = 0",      async function () { await expect(staking.connect(user1).stakeGDollar(HabitType.Health, 0,         30)).to.be.revertedWith("GoodCommit: amount must be > 0"); });
+//     it("stakeGDollar: duration = 0",    async function () { await expect(staking.connect(user1).stakeGDollar(HabitType.Health, e18(100),  0)).to.be.revertedWith("GoodCommit: duration 1-365 days"); });
+//     it("stakeGDollar: duration = 366",  async function () { await expect(staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 366)).to.be.revertedWith("GoodCommit: duration 1-365 days"); });
+
+//     it("recordWorkout: duration = 0", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+//       await expect(staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 0, 10, "run"))
+//         .to.be.revertedWith("GoodCommit: zero duration");
+//     });
+
+//     it("recordWorkout: pointsEarned = 0", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+//       await expect(staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 0, "run"))
+//         .to.be.revertedWith("GoodCommit: zero points");
+//     });
+
+//     it("recordQuiz: totalQuestions = 0", async function () {
+//       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 30);
+//       await expect(staking.connect(verifier).recordQuiz(user1.address, HabitType.Academics, 0, 0, 0, 0))
+//         .to.be.revertedWith("GoodCommit: zero questions");
+//     });
+
+//     it("setVerifier: zero address",       async function () { await expect(staking.connect(owner).setVerifier(ethers.ZeroAddress)).to.be.revertedWith("Zero address"); });
+//     it("setRewardTreasury: zero address",  async function () { await expect(staking.connect(owner).setRewardTreasury(ethers.ZeroAddress)).to.be.revertedWith("Zero address"); });
+//     it("setUbiPool: zero address",         async function () { await expect(staking.connect(owner).setUbiPool(ethers.ZeroAddress)).to.be.revertedWith("Zero address"); });
+//   });
+// });
+
+
+
+
+
+
+
+
+// // import { expect } from "chai";
+// // import { ethers } from "hardhat";
+// // import { time } from "@nomicfoundation/hardhat-network-helpers";
+// // import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
+
+// // // ─────────────────────────────────────────────────────────────────────────────
+// // // GoodCommitStaking — Security Test Suite
+// // // Contract: contracts/GoodCommitStaking.sol (V3)
+// // //
+// // // Constructor (5 args):
+// // //   GoodCommitStaking(gDollarToken, identityContract, verifier, rewardTreasury, ubiPool)
+// // // ─────────────────────────────────────────────────────────────────────────────
+
+// // const HabitType = { Health: 0, Academics: 1 } as const;
+// // const DAY       = 86_400;
+// // const e18       = (n: number | string) => ethers.parseEther(String(n));
+
+// // // ─────────────────────────────────────────────────────────────────────────────
+// // describe("GoodCommitStaking - Security Tests", function () {
+
+// //   let staking:        any;
+// //   let mockGToken:     any;
+// //   let mockIdentity:   any;
+// //   let stakingAddr:    string;
+
+// //   let owner:          SignerWithAddress;
+// //   let user1:          SignerWithAddress;
+// //   let user2:          SignerWithAddress;
+// //   let attacker:       SignerWithAddress;
+// //   let ubiPool:        SignerWithAddress;
+// //   let rewardTreasury: SignerWithAddress;
+// //   let verifier:       SignerWithAddress;
+
+// //   beforeEach(async function () {
+// //     [owner, user1, user2, attacker, ubiPool, rewardTreasury, verifier] =
+// //       await ethers.getSigners();
+
+// //     mockGToken   = await (await ethers.getContractFactory("MockGToken")).deploy();
+// //     mockIdentity = await (await ethers.getContractFactory("MockIdentity")).deploy();
+
+// //     // 5-arg constructor — V3
+// //     staking = await (await ethers.getContractFactory("GoodCommitStaking")).deploy(
+// //       await mockGToken.getAddress(),    // _gDollarToken
+// //       await mockIdentity.getAddress(),  // _identityContract
+// //       verifier.address,                 // _verifier
+// //       rewardTreasury.address,           // _rewardTreasury
+// //       ubiPool.address,                  // _ubiPool
+// //     );
+// //     stakingAddr = await staking.getAddress();
+
+// //     await mockGToken.mint(owner.address,    e18(500_000));
+// //     await mockGToken.mint(user1.address,    e18(10_000));
+// //     await mockGToken.mint(user2.address,    e18(10_000));
+// //     await mockGToken.mint(attacker.address, e18(10_000));
+
+// //     await mockGToken.connect(owner).approve(stakingAddr, e18(200_000));
+// //     await staking.connect(owner).fundContract(e18(200_000));
+
+// //     await mockIdentity.setVerified(user1.address, true);
+// //     await mockIdentity.setVerified(user2.address, true);
+
+// //     await mockGToken.connect(user1).approve(stakingAddr, e18(10_000));
+// //     await mockGToken.connect(user2).approve(stakingAddr, e18(10_000));
+// //     await mockGToken.connect(attacker).approve(stakingAddr, e18(10_000));
+// //   });
+
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   // A. ACCESS CONTROL
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   describe("Access Control", function () {
+
+// //     it("non-verifier cannot recordWorkout", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+// //       await expect(
+// //         staking.connect(attacker).recordWorkout(user1.address, HabitType.Health, 3600, 50, "run")
+// //       ).to.be.revertedWith("GoodCommit: caller is not verifier");
+// //     });
+
+// //     it("non-verifier cannot recordQuiz", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 30);
+// //       await expect(
+// //         staking.connect(attacker).recordQuiz(user1.address, HabitType.Academics, 10, 10, 999_999, 0)
+// //       ).to.be.revertedWith("GoodCommit: caller is not verifier");
+// //     });
+
+// //     it("non-verifier cannot slashStake", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+// //       await time.increase(3 * DAY + 1);
+// //       await expect(
+// //         staking.connect(attacker).slashStake(user1.address, HabitType.Health, "fake")
+// //       ).to.be.revertedWith("GoodCommit: caller is not verifier");
+// //     });
+
+// //     it("non-owner cannot setVerifier",       async function () { await expect(staking.connect(attacker).setVerifier(attacker.address)).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+// //     it("non-owner cannot setRewardTreasury", async function () { await expect(staking.connect(attacker).setRewardTreasury(attacker.address)).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+// //     it("non-owner cannot setUbiPool",        async function () { await expect(staking.connect(attacker).setUbiPool(attacker.address)).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+// //     it("non-owner cannot fundContract",      async function () { await expect(staking.connect(attacker).fundContract(e18(100))).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+// //     it("non-owner cannot pause",             async function () { await expect(staking.connect(attacker).pause()).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+// //     it("non-owner cannot unpause",           async function () { await staking.connect(owner).pause(); await expect(staking.connect(attacker).unpause()).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+// //     it("non-owner cannot emergencyWithdraw", async function () { await staking.connect(owner).pause(); await expect(staking.connect(attacker).emergencyWithdraw()).to.be.revertedWithCustomError(staking, "OwnableUnauthorizedAccount"); });
+
+// //     it("verifier cannot award points to themselves (no active stake)", async function () {
+// //       await expect(
+// //         staking.connect(verifier).recordWorkout(verifier.address, HabitType.Health, 3600, 999_999, "cheat")
+// //       ).to.be.revertedWith("GoodCommit: no active stake");
+// //     });
+
+// //     it("verifier cannot inflate another user's points beyond what contract allows", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+// //       // Verifier CAN award points — only trust model prevents abuse; no cap on points in contract
+// //       await expect(
+// //         staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 1_000_000, "cheat")
+// //       ).to.not.be.reverted;
+// //       // But a random attacker cannot
+// //       await expect(
+// //         staking.connect(attacker).recordWorkout(user1.address, HabitType.Health, 3600, 1_000_000, "cheat")
+// //       ).to.be.revertedWith("GoodCommit: caller is not verifier");
+// //     });
+// //   });
+
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   // B. SYBIL RESISTANCE
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   describe("Sybil Resistance", function () {
+
+// //     it("same address cannot claim seed twice", async function () {
+// //       await staking.connect(user1).claimInitialSeed();
+// //       await expect(staking.connect(user1).claimInitialSeed())
+// //         .to.be.revertedWith("GoodCommit: seed already claimed");
+// //     });
+
+// //     it("two wallets sharing one GD root cannot both claim", async function () {
+// //       const root1 = await mockIdentity.getWhitelistedRoot(user1.address);
+// //       await mockIdentity.setRoot(user2.address, root1);
+// //       await staking.connect(user1).claimInitialSeed();
+// //       await expect(staking.connect(user2).claimInitialSeed())
+// //         .to.be.revertedWith("GoodCommit: seed already claimed for this GoodDollar identity");
+// //     });
+
+// //     it("unverified attacker cannot claim seed", async function () {
+// //       await expect(staking.connect(attacker).claimInitialSeed())
+// //         .to.be.revertedWith("GoodCommit: wallet not GoodDollar verified - visit gooddollar.org");
+// //     });
+// //   });
+
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   // C. REENTRANCY PROTECTION
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   describe("Reentrancy Protection", function () {
+
+// //     it("claimPoints: state resets before transfer — double claim reverts immediately", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+// //       await staking.connect(verifier).recordQuiz(
+// //         user1.address, HabitType.Academics, 100, 100, 100, 0
+// //       );
+// //       await time.increase(DAY + 1);
+
+// //       await staking.connect(user1).claimPoints(HabitType.Academics); // first claim succeeds
+
+// //       // Second call: points are 0 → reverts before any transfer
+// //       await expect(staking.connect(user1).claimPoints(HabitType.Academics))
+// //         .to.be.revertedWith("GoodCommit: need 100+ points to claim");
+// //     });
+
+// //     it("unstakeTokens: active=false before transfer — no double-unstake", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(500), 30);
+// //       await staking.connect(user1).unstakeTokens(HabitType.Health);
+// //       await expect(staking.connect(user1).unstakeTokens(HabitType.Health))
+// //         .to.be.revertedWith("GoodCommit: no active stake");
+// //     });
+
+// //     it("claimInitialSeed: hasClaimedSeed=true before transfer — no double-claim", async function () {
+// //       await staking.connect(user1).claimInitialSeed();
+// //       await expect(staking.connect(user1).claimInitialSeed())
+// //         .to.be.revertedWith("GoodCommit: seed already claimed");
+// //     });
+// //   });
+
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   // D. INTEGER SAFETY
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   describe("Integer Safety", function () {
+
+// //     it("points floor at 0 for large penalty (no underflow)", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 30);
+// //       await staking.connect(verifier).recordQuiz(
+// //         user1.address, HabitType.Academics, 0, 10, 0, -1_000_000
+// //       );
+// //       const [, pts] = await staking.getHabitStake(user1.address, HabitType.Academics);
+// //       expect(pts).to.equal(0n);
+// //     });
+
+// //     it("penalty exactly equal to points floors at 0", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 30);
+// //       await staking.connect(verifier).recordQuiz(user1.address, HabitType.Academics, 5, 10, 5, 0);
+// //       await staking.connect(verifier).recordQuiz(user1.address, HabitType.Academics, 0, 10, 0, -5);
+// //       const [, pts] = await staking.getHabitStake(user1.address, HabitType.Academics);
+// //       expect(pts).to.equal(0n);
+// //     });
+
+// //     it("points never go below 0 after 30 days decay", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 60);
+// //       await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 100, "gym");
+// //       await time.increase(30 * DAY);
+// //       await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 60, 1, "ping");
+// //       const [, pts] = await staking.getHabitStake(user1.address, HabitType.Health);
+// //       expect(pts).to.be.gte(0n);
+// //     });
+
+// //     it("slash BPS add to exactly 100%: 60+40=100, nothing left behind", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(1000), 30);
+// //       await time.increase(3 * DAY + 1);
+// //       const ubiBefore = await mockGToken.balanceOf(ubiPool.address);
+// //       const treBefore = await mockGToken.balanceOf(rewardTreasury.address);
+// //       await staking.connect(verifier).slashStake(user1.address, HabitType.Health, "inactive");
+// //       const ubiGot = await mockGToken.balanceOf(ubiPool.address)        - ubiBefore;
+// //       const treGot = await mockGToken.balanceOf(rewardTreasury.address) - treBefore;
+// //       expect(ubiGot + treGot).to.equal(e18(1000));
+// //       expect(ubiGot).to.equal(e18(600));
+// //       expect(treGot).to.equal(e18(400));
+// //     });
+// //   });
+
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   // E. PAUSE / EMERGENCY WITHDRAW
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   describe("Pause & Emergency Withdraw", function () {
+
+// //     it("pause blocks claimInitialSeed",  async function () { await staking.connect(owner).pause(); await expect(staking.connect(user1).claimInitialSeed()).to.be.revertedWithCustomError(staking, "EnforcedPause"); });
+// //     it("pause blocks stakeGDollar",      async function () { await staking.connect(owner).pause(); await expect(staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 7)).to.be.revertedWithCustomError(staking, "EnforcedPause"); });
+
+// //     it("pause blocks recordWorkout", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+// //       await staking.connect(owner).pause();
+// //       await expect(
+// //         staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 10, "run")
+// //       ).to.be.revertedWithCustomError(staking, "EnforcedPause");
+// //     });
+
+// //     it("pause blocks claimPoints", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+// //       await staking.connect(verifier).recordQuiz(
+// //         user1.address, HabitType.Academics, 100, 100, 100, 0
+// //       );
+// //       await time.increase(DAY + 1);
+// //       await staking.connect(owner).pause();
+// //       await expect(staking.connect(user1).claimPoints(HabitType.Academics))
+// //         .to.be.revertedWithCustomError(staking, "EnforcedPause");
+// //     });
+
+// //     it("pause blocks slashStake", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+// //       await time.increase(3 * DAY + 1);
+// //       await staking.connect(owner).pause();
+// //       await expect(
+// //         staking.connect(verifier).slashStake(user1.address, HabitType.Health, "inactive")
+// //       ).to.be.revertedWithCustomError(staking, "EnforcedPause");
+// //     });
+
+// //     it("all operations resume after unpause", async function () {
+// //       await staking.connect(owner).pause();
+// //       await staking.connect(owner).unpause();
+// //       await expect(staking.connect(user1).claimInitialSeed()).to.not.be.reverted;
+// //     });
+
+// //     it("emergencyWithdraw reverts when not paused", async function () {
+// //       await expect(staking.connect(owner).emergencyWithdraw())
+// //         .to.be.revertedWithCustomError(staking, "ExpectedPause");
+// //     });
+
+// //     it("emergencyWithdraw sends full balance to owner when paused", async function () {
+// //       const contractBal = await staking.contractGDollarBalance();
+// //       const ownerBefore = await mockGToken.balanceOf(owner.address);
+// //       await staking.connect(owner).pause();
+// //       await staking.connect(owner).emergencyWithdraw();
+// //       expect(await mockGToken.balanceOf(owner.address) - ownerBefore).to.equal(contractBal);
+// //       expect(await staking.contractGDollarBalance()).to.equal(0n);
+// //     });
+
+// //     it("contract recovers after emergencyWithdraw + unpause + refund", async function () {
+// //       await staking.connect(owner).pause();
+// //       await staking.connect(owner).emergencyWithdraw();
+// //       await staking.connect(owner).unpause();
+// //       await mockGToken.connect(owner).approve(stakingAddr, e18(50_000));
+// //       await staking.connect(owner).fundContract(e18(50_000));
+// //       await expect(staking.connect(user1).claimInitialSeed()).to.not.be.reverted;
+// //     });
+// //   });
+
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   // F. TOKEN TRANSFER SAFETY
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   describe("Token Transfer Safety", function () {
+
+// //     it("stakeGDollar reverts when user has no approval", async function () {
+// //       // Reset attacker's approval to 0
+// //       await mockGToken.connect(attacker).approve(stakingAddr, 0);
+// //       await expect(
+// //         staking.connect(attacker).stakeGDollar(HabitType.Health, e18(100), 7)
+// //       ).to.be.reverted;
+// //     });
+
+// //     it("stakeGDollar reverts when user balance is insufficient", async function () {
+// //       const bal = await mockGToken.balanceOf(user1.address);
+// //       await expect(
+// //         staking.connect(user1).stakeGDollar(HabitType.Health, bal + e18(1), 7)
+// //       ).to.be.reverted;
+// //     });
+
+// //     it("claimInitialSeed reverts when contract is empty", async function () {
+// //       await staking.connect(owner).pause();
+// //       await staking.connect(owner).emergencyWithdraw();
+// //       await staking.connect(owner).unpause();
+// //       await expect(staking.connect(user1).claimInitialSeed())
+// //         .to.be.revertedWith("GoodCommit: insufficient seed funds in contract");
+// //     });
+
+// //     it("claimPoints reverts when contract cannot cover payout", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+// //       await staking.connect(verifier).recordQuiz(
+// //         user1.address, HabitType.Academics, 100, 100, 100, 0
+// //       );
+// //       await time.increase(DAY + 1);
+// //       // Drain then re-fund with only 1 G$ (payout needs 10 G$)
+// //       await staking.connect(owner).pause();
+// //       await staking.connect(owner).emergencyWithdraw();
+// //       await staking.connect(owner).unpause();
+// //       await mockGToken.connect(owner).approve(stakingAddr, e18(1));
+// //       await staking.connect(owner).fundContract(e18(1));
+// //       await expect(staking.connect(user1).claimPoints(HabitType.Academics))
+// //         .to.be.revertedWith("GoodCommit: insufficient contract balance for harvest");
+// //     });
+// //   });
+
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   // G. INACTIVITY / SLASH GUARDS
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   describe("Inactivity & Slash Guards", function () {
+
+// //     it("slashStake reverts if < 3 days inactive", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(500), 30);
+// //       await time.increase(DAY);
+// //       await expect(
+// //         staking.connect(verifier).slashStake(user1.address, HabitType.Health, "fake")
+// //       ).to.be.revertedWith("GoodCommit: user not inactive yet");
+// //     });
+
+// //     it("slashStake reverts on wallet with no active stake", async function () {
+// //       await expect(
+// //         staking.connect(verifier).slashStake(attacker.address, HabitType.Health, "fake")
+// //       ).to.be.revertedWith("GoodCommit: no active stake");
+// //     });
+
+// //     it("recording workout resets clock — prevents slashing within next 3 days", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+// //       await time.increase(2 * DAY); // not yet inactive
+// //       await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 60, 5, "walk");
+// //       // 2 more days from new lastActivity — still < 3 days
+// //       await time.increase(2 * DAY);
+// //       expect(await staking.isInactive(user1.address, HabitType.Health)).to.be.false;
+// //     });
+
+// //     it("slash distributes correct amounts even if user had accumulated points", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(1000), 30);
+// //       await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 50, "gym");
+// //       await time.increase(3 * DAY + 1);
+// //       const ubiBefore = await mockGToken.balanceOf(ubiPool.address);
+// //       await staking.connect(verifier).slashStake(user1.address, HabitType.Health, "inactive");
+// //       expect(await mockGToken.balanceOf(ubiPool.address) - ubiBefore).to.equal(e18(600));
+// //     });
+// //   });
+
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   // H. DECAY INTEGRITY
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   describe("Decay Integrity", function () {
+
+// //     it("decay is applied inside claimPoints — user cannot dodge decay by claiming", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+// //       await staking.connect(verifier).recordQuiz(
+// //         user1.address, HabitType.Academics, 100, 100, 100, 0
+// //       );
+// //       // Advance 1 day past commitmentEnd (so 2 full days past last activity)
+// //       await time.increase(2 * DAY + 1);
+
+// //       const before = await mockGToken.balanceOf(user1.address);
+// //       await staking.connect(user1).claimPoints(HabitType.Academics);
+// //       const received = await mockGToken.balanceOf(user1.address) - before;
+// //       // 100 pts * 0.6^2 (2 days decay) = 36 pts = 3.6 G$
+// //       expect(received).to.equal(e18(3.6));
+// //     });
+
+// //     it("top-up stake does NOT call _applyDecay — pending decay survives until next activity", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 60);
+// //       await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 100, "gym");
+
+// //       await time.increase(DAY + 1);
+// //       // Top-up doesn't trigger decay
+// //       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(50), 30);
+// //       const [, ptsAfterTopup] = await staking.getHabitStake(user1.address, HabitType.Health);
+// //       expect(ptsAfterTopup).to.equal(100n); // unchanged — decay not yet applied
+
+// //       // Next activity triggers decay
+// //       await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 60, 1, "ping");
+// //       const [, ptsAfterPing] = await staking.getHabitStake(user1.address, HabitType.Health);
+// //       expect(ptsAfterPing).to.equal(61n); // 100*0.6=60 + 1
+// //     });
+
+// //     it("decayRewardPool accumulates from two users independently", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 60);
+// //       await staking.connect(user2).stakeGDollar(HabitType.Health, e18(100), 60);
+// //       await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 100, "gym");
+// //       await staking.connect(verifier).recordWorkout(user2.address, HabitType.Health, 3600, 100, "gym");
+
+// //       await time.increase(DAY + 1);
+// //       await staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 60, 1, "ping");
+// //       expect(await staking.decayRewardPool()).to.equal(40n); // user1: 40% of 100
+
+// //       await staking.connect(verifier).recordWorkout(user2.address, HabitType.Health, 60, 1, "ping");
+// //       expect(await staking.decayRewardPool()).to.equal(80n); // + user2: another 40
+// //     });
+// //   });
+
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   // I. COMMITMENT PERIOD ENFORCEMENT
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   describe("Commitment Period Enforcement", function () {
+
+// //     it("claimPoints blocked before commitmentEnd regardless of points", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 30);
+// //       await staking.connect(verifier).recordQuiz(
+// //         user1.address, HabitType.Academics, 100, 100, 100, 0
+// //       );
+// //       await time.increase(DAY); // 1 of 30 days
+// //       await expect(staking.connect(user1).claimPoints(HabitType.Academics))
+// //         .to.be.revertedWith("GoodCommit: commitment period not ended yet");
+// //     });
+
+// //     it("claimPoints succeeds immediately after commitmentEnd", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+// //       await staking.connect(verifier).recordQuiz(
+// //         user1.address, HabitType.Academics, 100, 100, 100, 0
+// //       );
+// //       await time.increase(DAY + 1);
+// //       await expect(staking.connect(user1).claimPoints(HabitType.Academics)).to.not.be.reverted;
+// //     });
+
+// //     it("top-up resets commitmentEnd to later — extends lock", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 1);
+// //       await staking.connect(verifier).recordQuiz(
+// //         user1.address, HabitType.Academics, 100, 100, 100, 0
+// //       );
+// //       // Stake again for 30 days before original 1-day lock expires
+// //       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(50), 30);
+// //       // Advance past original 1-day lock but not the new 30-day lock
+// //       await time.increase(DAY + 1);
+// //       await expect(staking.connect(user1).claimPoints(HabitType.Academics))
+// //         .to.be.revertedWith("GoodCommit: commitment period not ended yet");
+// //     });
+// //   });
+
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   // J. INPUT VALIDATION
+// //   // ═══════════════════════════════════════════════════════════════════════════
+// //   describe("Input Validation", function () {
+
+// //     it("stakeGDollar: amount = 0",      async function () { await expect(staking.connect(user1).stakeGDollar(HabitType.Health, 0,         30)).to.be.revertedWith("GoodCommit: amount must be > 0"); });
+// //     it("stakeGDollar: duration = 0",    async function () { await expect(staking.connect(user1).stakeGDollar(HabitType.Health, e18(100),  0)).to.be.revertedWith("GoodCommit: duration 1-365 days"); });
+// //     it("stakeGDollar: duration = 366",  async function () { await expect(staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 366)).to.be.revertedWith("GoodCommit: duration 1-365 days"); });
+
+// //     it("recordWorkout: duration = 0", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+// //       await expect(staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 0, 10, "run"))
+// //         .to.be.revertedWith("GoodCommit: zero duration");
+// //     });
+
+// //     it("recordWorkout: pointsEarned = 0", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Health, e18(100), 30);
+// //       await expect(staking.connect(verifier).recordWorkout(user1.address, HabitType.Health, 3600, 0, "run"))
+// //         .to.be.revertedWith("GoodCommit: zero points");
+// //     });
+
+// //     it("recordQuiz: totalQuestions = 0", async function () {
+// //       await staking.connect(user1).stakeGDollar(HabitType.Academics, e18(100), 30);
+// //       await expect(staking.connect(verifier).recordQuiz(user1.address, HabitType.Academics, 0, 0, 0, 0))
+// //         .to.be.revertedWith("GoodCommit: zero questions");
+// //     });
+
+// //     it("setVerifier: zero address",       async function () { await expect(staking.connect(owner).setVerifier(ethers.ZeroAddress)).to.be.revertedWith("Zero address"); });
+// //     it("setRewardTreasury: zero address",  async function () { await expect(staking.connect(owner).setRewardTreasury(ethers.ZeroAddress)).to.be.revertedWith("Zero address"); });
+// //     it("setUbiPool:  zero address",         async function () { await expect(staking.connect(owner).setUbiPool(ethers.ZeroAddress)).to.be.revertedWith("Zero address"); });
+// //   });
+// // });

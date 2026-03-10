@@ -1,0 +1,21 @@
+{
+  "network": "celo",
+  "chainId": "42220",
+  "contracts": {
+    "GoodCommitStaking": "0x0C6A7E2D57ac78F63a1A8a7fC2CeE4840CD451BD",
+    "GToken": "0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A",
+    "IdentityContract": "0xC361A6E67822a0EDc17D899227dd9FC50BD62F42"
+  },
+  "addresses": {
+    "deployer": "0xDfbBf684c0277cF6B680bC3B5C14FACAad429873",
+    "verifier": "0x95D1ebdFFe5eb6DB25905Bb8953dF1570a6B8397",
+    "rewardTreasury": "0x95D1ebdFFe5eb6DB25905Bb8953dF1570a6B8397",
+    "ubiPool": "0xDfbBf684c0277cF6B680bC3B5C14FACAad429873"
+  },
+  "timestamp": "2026-03-10T16:11:43.242Z",
+  "blockNumber": 61258343
+}
+
+// To Deploy on Celo Mainnet use the command bellow
+
+// npx hardhat run scripts/deploy.ts --network celo  

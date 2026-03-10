@@ -2,7 +2,7 @@
   "network": "hardhat",
   "chainId": "31337",
   "contracts": {
-    "GoodCommitStaking": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    "GoodCommitStaking": "0x5FbDB2315678afecb367f032d93F642f64180aa3",   // Celo testnet
     "GToken": "0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A"
   },
   "addresses": {
