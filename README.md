@@ -100,6 +100,21 @@ Beautiful, responsive user interface:
 ### For Health & Fitness Users
 
 1. **Connect Wallet** - Link your Celo wallet with RainbowKit
+- Remember to switch to the Celo network in your wallet. You can use MetaMask
+- You can add the Celo network to your wallet by clicking on the network dropdown and selecting "Add a custom Network". 
+
+```
+Network Name: Celo Mainnet
+
+RPC URL: https://forno.celo.org
+
+Chain ID: 42220
+
+Currency Symbol: CELO
+
+Block Explorer: https://celoscan.io
+```
+- now the Celo token network has been added to your wallet Token list
 2. **Verify Identity** - Complete GoodDollar Face Verification (one-time)
 3. **Plant Your Seed** - Stake G$ tokens, set commitment duration (days)
 4. **Choose Exercise** - Walking, running, gym workouts (squats, weights, cardio)
