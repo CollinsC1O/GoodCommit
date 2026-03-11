@@ -302,6 +302,8 @@ We welcome contributions! Areas where you can help:
 
 ## Address
 
+- **GoodCommitStaking Contract-Address:** `0x0C6A7E2D57ac78F63a1A8a7fC2CeE4840CD451BD`
+
 - **G$ Token**: `0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A`
 
 
