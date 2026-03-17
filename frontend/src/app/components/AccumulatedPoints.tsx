@@ -56,8 +56,8 @@ export default function AccumulatedPoints() {
   }
   
   // Calculate total points from both habits
-  const healthPoints = healthStake ? Number(healthStake[1]) : 0; // points is index 1
-  const academicsPoints = academicsStake ? Number(academicsStake[1]) : 0;
+  const healthPoints = healthStake ? Number((healthStake as any)[1]) : 0; // points is index 1
+  const academicsPoints = academicsStake ? Number((academicsStake as any)[1]) : 0;
   const totalPoints = healthPoints + academicsPoints;
   
   return (

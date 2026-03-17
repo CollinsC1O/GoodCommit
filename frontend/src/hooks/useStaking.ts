@@ -16,7 +16,7 @@ export function useStaking(habitType: HabitType) {
     functionName: 'getStakeInfo',
     args: address ? [address, habitType] : undefined,
     query: {
-      enabled: !!address && contracts.staking !== '0x0000000000000000000000000000000000000000',
+      enabled: !!address && (contracts.staking as string) !== '0x0000000000000000000000000000000000000000',
     },
   });
   
@@ -27,7 +27,7 @@ export function useStaking(habitType: HabitType) {
     functionName: 'getUserProfile',
     args: address ? [address] : undefined,
     query: {
-      enabled: !!address && contracts.staking !== '0x0000000000000000000000000000000000000000',
+      enabled: !!address && (contracts.staking as string) !== '0x0000000000000000000000000000000000000000',
     },
   });
   
@@ -61,7 +61,7 @@ export function useStaking(habitType: HabitType) {
   
   const claimInitialSeed = async () => {
     if (!address) throw new Error('Wallet not connected');
-    if (contracts.staking === '0x0000000000000000000000000000000000000000') {
+    if ((contracts.staking as string) === '0x0000000000000000000000000000000000000000') {
       throw new Error('Staking contract not deployed yet');
     }
     
@@ -74,7 +74,7 @@ export function useStaking(habitType: HabitType) {
   
   const plantSeedTx = async (amount: string, duration: number) => {
     if (!address) throw new Error('Wallet not connected');
-    if (contracts.staking === '0x0000000000000000000000000000000000000000') {
+    if ((contracts.staking as string) === '0x0000000000000000000000000000000000000000') {
       throw new Error('Staking contract not deployed yet');
     }
     

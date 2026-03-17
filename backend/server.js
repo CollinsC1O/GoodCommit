@@ -31,123 +31,7 @@ const PORT = process.env.PORT || 3001;
 // ==================== STAKING ABI ====================
 // Declared at top — referenced across multiple routes.
 
-const STAKING_ABI = [
-  // ── Seed claim (called by user's wallet directly via frontend) ─────────────
-  // The contract verifies GoodDollar identity on-chain itself.
-  // Backend only uses checkSeedEligibility() for a pre-flight UX check.
-  {
-    inputs: [],
-    name: 'claimInitialSeed',
-    outputs: [],
-    stateMutability: 'nonpayable',
-    type: 'function',
-  },
-  {
-    inputs: [{ name: 'user', type: 'address' }],
-    name: 'checkSeedEligibility',
-    outputs: [
-      { name: 'eligible', type: 'bool' },
-      { name: 'gdRoot',   type: 'address' },
-      { name: 'reason',   type: 'string' },
-    ],
-    stateMutability: 'view',
-    type: 'function',
-  },
-  // ── Staking ────────────────────────────────────────────────────────────────
-  {
-    inputs: [
-      { name: 'habitType',    type: 'uint8'   },
-      { name: 'amount',       type: 'uint256' },
-      { name: 'durationDays', type: 'uint256' },
-    ],
-    name: 'stakeGDollar',
-    outputs: [],
-    stateMutability: 'nonpayable',
-    type: 'function',
-  },
-  // ── Activity recording (verifier only) ────────────────────────────────────
-  {
-    inputs: [
-      { name: 'user',         type: 'address' },
-      { name: 'habitType',    type: 'uint8'   },
-      { name: 'duration',     type: 'uint256' },
-      { name: 'pointsEarned', type: 'uint256' },
-      { name: 'exerciseType', type: 'string'  },
-    ],
-    name: 'recordWorkout',
-    outputs: [],
-    stateMutability: 'nonpayable',
-    type: 'function',
-  },
-  {
-    inputs: [
-      { name: 'user',           type: 'address' },
-      { name: 'habitType',      type: 'uint8'   },
-      { name: 'correctAnswers', type: 'uint8'   },
-      { name: 'totalQuestions', type: 'uint8'   },
-      { name: 'pointsEarned',   type: 'uint256' },
-      { name: 'pointsPenalty',  type: 'int256'  },
-    ],
-    name: 'recordQuiz',
-    outputs: [],
-    stateMutability: 'nonpayable',
-    type: 'function',
-  },
-  // ── Slashing ───────────────────────────────────────────────────────────────
-  {
-    inputs: [
-      { name: 'user',      type: 'address' },
-      { name: 'habitType', type: 'uint8'   },
-      { name: 'reason',    type: 'string'  },
-    ],
-    name: 'slashStake',
-    outputs: [],
-    stateMutability: 'nonpayable',
-    type: 'function',
-  },
-  {
-    inputs: [
-      { name: 'user',      type: 'address' },
-      { name: 'habitType', type: 'uint8'   },
-    ],
-    name: 'isInactive',
-    outputs: [{ name: '', type: 'bool' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
-  // ── Views ──────────────────────────────────────────────────────────────────
-  {
-    inputs: [{ name: 'user', type: 'address' }],
-    name: 'getUserProfile',
-    outputs: [
-      { name: 'initialized',            type: 'bool'    },
-      { name: 'hasClaimedSeed',         type: 'bool'    },
-      { name: 'totalPointsEarned',      type: 'uint256' },
-      { name: 'totalWorkoutsCompleted', type: 'uint256' },
-      { name: 'totalQuizzesCompleted',  type: 'uint256' },
-      { name: 'totalClaimed',           type: 'uint256' },
-      { name: 'totalStaked',            type: 'uint256' },
-    ],
-    stateMutability: 'view',
-    type: 'function',
-  },
-  {
-    inputs: [
-      { name: 'user',      type: 'address' },
-      { name: 'habitType', type: 'uint8'   },
-    ],
-    name: 'getHabitStake',
-    outputs: [
-      { name: 'stakedAmount',     type: 'uint256' },
-      { name: 'points',           type: 'uint256' },
-      { name: 'lastActivityTime', type: 'uint256' },
-      { name: 'commitmentEnd',    type: 'uint256' },
-      { name: 'active',           type: 'bool'    },
-    ],
-    stateMutability: 'view',
-    type: 'function',
-  },
-];
+const STAKING_ABI = require('./config/GoodCommitStaking.json').abi;
 
 // ==================== PROVIDERS ====================
 
@@ -392,14 +276,14 @@ app.get('/api/user/stake/:address/:habitType', async (req, res) => {
 
     const stake = await withFallback(async (provider) => {
       const sc = new ethers.Contract(process.env.STAKING_CONTRACT_ADDRESS, STAKING_ABI, provider);
-      const [stakedAmount, points, lastActivityTime, commitmentEnd, active] =
-        await sc.getHabitStake(addr, habitType);
+      const [stakedAmount, points, duration, currentStreak, status, lastActivityTime] =
+        await sc.getStakeInfo(addr, habitType);
       return {
         stakedAmount:     stakedAmount.toString(),
         points:           points.toString(),
         lastActivityTime: lastActivityTime.toString(),
-        commitmentEnd:    commitmentEnd.toString(),
-        active,
+        duration:         duration.toString(),
+        status:           Number(status),
       };
     });
 
