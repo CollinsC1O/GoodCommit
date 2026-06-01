@@ -20,6 +20,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        <meta
+          name="talentapp:project_verification"
+          content="2541c82874af89fa245a467b364914132f25ae7112ac89dc7ff934739f52375f94a2c741cc4c46ad9b1916367a9961f924e50860dcc3058e85c25bae7fa7b336"
+        />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
       </head>
       <body

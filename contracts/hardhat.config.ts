@@ -1,3 +1,4 @@
+
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
 import * as dotenv from "dotenv";
@@ -25,25 +26,14 @@ const config: HardhatUserConfig = {
     },
   },
   etherscan: {
-    apiKey: {
-      // CeloScan API key for contract verification
-      celo: process.env.CELOSCAN_API_KEY || "",
-    },
+    apiKey: process.env.ETHERSCAN_API_KEY || process.env.CELOSCAN_API_KEY || "",
     customChains: [
       {
         network: "celo",
         chainId: 42220,
         urls: {
-          apiURL: "https://api.celoscan.io/api",
+          apiURL: "https://api.etherscan.io/v2/api",
           browserURL: "https://celoscan.io",
-        },
-      },
-      {
-        network: "alfajores",
-        chainId: 44787,
-        urls: {
-          apiURL: "https://api-alfajores.celoscan.io/api",
-          browserURL: "https://alfajores.celoscan.io",
         },
       },
     ],
@@ -53,6 +43,78 @@ const config: HardhatUserConfig = {
 export default config;
 
 
+
+////=================================================================================
+//// Previous version of hardhat.config.ts before cleanup (with comments and IGNORE lines)
+////=========================================================
+
+// /**
+//  * @type import('hardhat/config').HardhatUserConfig
+//  */  
+
+// import { HardhatUserConfig } from "hardhat/config";
+// import "@nomicfoundation/hardhat-toolbox";
+// import * as dotenv from "dotenv";
+// dotenv.config();
+
+// const config: HardhatUserConfig = {
+//   solidity: {
+//     version: "0.8.20",
+//     settings: {
+//       optimizer: { enabled: true, runs: 200 },
+//     },
+//   },
+//   networks: {
+//     // Testnet — use this first to verify everything works
+//     alfajores: {
+//       url: process.env.ALFAJORES_RPC_URL || "https://forno.celo-sepolia.celo-testnet.org",
+//       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+//       chainId: 11142220,
+//     },
+//     // Mainnet — deploy here when ready
+//     celo: {
+//       url: process.env.CELO_RPC_URL || "https://forno.celo.org",
+//       accounts: [process.env.PRIVATE_KEY!],
+//       chainId: 42220,
+//     },
+//   },
+//   etherscan: {
+//     apiKey: {
+//       // CeloScan API key for contract verification
+//       celo: process.env.CELOSCAN_API_KEY || "",
+//     },
+//     customChains: [
+//       {
+//         network: "celo",
+//         chainId: 42220,
+//         urls: {
+//           apiURL: "https://api.celoscan.io/api",
+//           browserURL: "https://celoscan.io",
+//         },
+//       },
+//       {
+//         network: "alfajores",
+//         chainId: 44787,
+//         urls: {
+//           apiURL: "https://api-alfajores.celoscan.io/api",
+//           browserURL: "https://alfajores.celoscan.io",
+//         },
+//       },
+//     ],
+//   },
+// };
+
+// export default config;
+
+
+
+////=================================================================================
+//// First Previous version of hardhat.config.ts before cleanup (with comments and IGNORE lines)
+////=========================================================
+
+// /**
+//  * @type import('hardhat/config').HardhatUserConfig
+//  */  
 
 
 // import { HardhatUserConfig } from "hardhat/config";
@@ -116,6 +178,5 @@ export default config;
 // };
 
 // export default config;
-
 
 
