@@ -531,7 +531,7 @@ contract GoodCommitStaking is ReentrancyGuard, Ownable, Pausable {
     function unpause() external onlyOwner { _unpause(); }
 
     /**
-     * @notice Emergency withdrawal of all G$ to owner (only while paused).
+     * @notice Emergency withdrawal of all G$ to owner (only while paused, so contract will have to be puased first).
      */
     function emergencyWithdraw() external onlyOwner whenPaused {
         uint256 bal = gDollarToken.balanceOf(address(this));

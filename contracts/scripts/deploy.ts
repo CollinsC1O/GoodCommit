@@ -104,6 +104,12 @@ async function main() {
   if (!fs.existsSync(deploymentsDir)) fs.mkdirSync(deploymentsDir, { recursive: true });
 
   const deploymentFile = path.join(deploymentsDir, `${networkName}.json`);
+  if (fs.existsSync(deploymentFile)) {
+    const backupFile = path.join(deploymentsDir, `${networkName}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+    fs.copyFileSync(deploymentFile, backupFile);
+    console.log(`\n🗄️  Previous deployment backed up to: ${backupFile}`);
+  }
+
   fs.writeFileSync(deploymentFile, JSON.stringify(deploymentInfo, null, 2));
   console.log(`\n💾 Saved to: ${deploymentFile}`);
 
@@ -115,7 +121,7 @@ async function main() {
   console.log(`\n2. Update your backend .env:`);
   console.log(`   STAKING_CONTRACT_ADDRESS=${stakingAddress}`);
   console.log(`\n3. Update your frontend config:`);
-  console.log(`   NEXT_PUBLIC_STAKING_CONTRACT=${stakingAddress}`);
+  console.log(`   NEXT_PUBLIC_STAKING_CONTRACT_ADDRESS=${stakingAddress}`);
   console.log(`\n4. Verify on CeloScan:`);
   console.log(
     `   npx hardhat verify --network celo ${stakingAddress}`,
