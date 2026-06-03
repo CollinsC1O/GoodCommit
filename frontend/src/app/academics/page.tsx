@@ -17,6 +17,19 @@ type Question = {
   userAnswer?: number;
 };
 
+const MOCK_QUESTIONS: Question[] = [
+  { id: 1, question: 'What is the primary function of mitochondria?', options: ['Protein synthesis', 'Energy production', 'DNA replication', 'Cell division'], correctAnswer: 1 },
+  { id: 2, question: 'Which is NOT a renewable energy source?', options: ['Solar power', 'Wind power', 'Natural gas', 'Hydroelectric power'], correctAnswer: 2 },
+  { id: 3, question: 'What is the capital of Nigeria?', options: ['Lagos', 'Abuja', 'Kano', 'Port Harcourt'], correctAnswer: 1 },
+  { id: 4, question: 'Value of pi approximately?', options: ['2.14', '3.14', '4.14', '5.14'], correctAnswer: 1 },
+  { id: 5, question: "Who wrote 'Romeo and Juliet'?", options: ['Charles Dickens', 'William Shakespeare', 'Jane Austen', 'Mark Twain'], correctAnswer: 1 },
+  { id: 6, question: 'Chemical symbol for gold?', options: ['Go', 'Gd', 'Au', 'Ag'], correctAnswer: 2 },
+  { id: 7, question: 'Which planet is the Red Planet?', options: ['Venus', 'Jupiter', 'Mars', 'Saturn'], correctAnswer: 2 },
+  { id: 8, question: 'Largest ocean on Earth?', options: ['Atlantic', 'Indian', 'Arctic', 'Pacific'], correctAnswer: 3 },
+  { id: 9, question: 'When did Nigeria gain independence?', options: ['1958', '1960', '1962', '1963'], correctAnswer: 1 },
+  { id: 10, question: 'Square root of 144?', options: ['10', '11', '12', '13'], correctAnswer: 2 },
+];
+
 // ─── CONTRACT THRESHOLD CONSTANTS (mirrors GoodCommitStaking.sol exactly) ────
 // SEED_THRESHOLD     = 10   → status: Seed    (points < 30)
 // SPROUT_THRESHOLD   = 30   → status: Sprout  (30 ≤ points < 60)
@@ -117,6 +130,14 @@ function AcademicsPage() {
     }
   };
 
+  const resetQuizProgress = () => {
+    setCurrentQuestionIndex(0);
+    setCorrectAnswers(0);
+    setWrongAnswers(0);
+    setNetPointsLastQuiz(null);
+    quizSubmitted.current = false;
+  };
+
   // ── File upload ───────────────────────────────────────────────────────────
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -130,11 +151,16 @@ function AcademicsPage() {
   // ── Generate quiz ─────────────────────────────────────────────────────────
   const generateQuiz = async () => {
     if (!uploadedFile) return;
+    if (!address) {
+      alert('Wallet address is still loading. Please try again in a moment.');
+      return;
+    }
+
     setIsGeneratingQuiz(true);
     try {
       const formData = new FormData();
       formData.append('pdf', uploadedFile);
-      formData.append('userAddress', address || '');
+      formData.append('userAddress', address);
 
       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
       const response = await fetch(`${backendUrl}/api/quiz/generate`, {
@@ -145,18 +171,21 @@ function AcademicsPage() {
       if (!response.ok) throw new Error(data.error || 'Failed to generate quiz');
 
       setQuestions(data.questions);
-      setCurrentQuestionIndex(0);
-      setCorrectAnswers(0);
-      setWrongAnswers(0);
-      setNetPointsLastQuiz(null);
-      quizSubmitted.current = false;
+      resetQuizProgress();
       setQuizStage('quiz');
     } catch (error) {
       console.error('Quiz generation error:', error);
-      alert('Failed to generate quiz. Please try again.');
+      const message = error instanceof Error ? error.message : 'Failed to generate quiz';
+      alert(`Failed to generate quiz: ${message}`);
     } finally {
       setIsGeneratingQuiz(false);
     }
+  };
+
+  const generateMockQuiz = () => {
+    setQuestions(MOCK_QUESTIONS.map((question) => ({ ...question })));
+    resetQuizProgress();
+    setQuizStage('quiz');
   };
 
   const handleAnswerSelect = (answerIndex: number) => {
@@ -404,36 +433,11 @@ function AcademicsPage() {
                     <div className="text-4xl mb-3">🤖</div>
                     <h4 className="font-bold text-white mb-2">Try Mock Quiz</h4>
                     <p className="text-slate-500 text-xs mb-auto">
-                      Don't have a PDF ready? Take a random 10-question general knowledge quiz to test the flow.
+                      Don&apos;t have a PDF ready? Take a random 10-question general knowledge quiz to test the flow.
                     </p>
                     
                     <button
-                      onClick={async () => {
-                        setIsGeneratingQuiz(true);
-                        try {
-                          const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
-                          const response = await fetch(`${backendUrl}/api/quiz/generate`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ userAddress: address || '', isMock: true }),
-                          });
-                          const data = await response.json();
-                          if (!response.ok) throw new Error(data.error);
-                          
-                          setQuestions(data.questions);
-                          setCurrentQuestionIndex(0);
-                          setCorrectAnswers(0);
-                          setWrongAnswers(0);
-                          setWrongAnswers(0);
-                          setNetPointsLastQuiz(null);
-                          quizSubmitted.current = false;
-                          setQuizStage('quiz');
-                        } catch (error) {
-                          alert('Failed to launch mock quiz.');
-                        } finally {
-                          setIsGeneratingQuiz(false);
-                        }
-                      }}
+                      onClick={generateMockQuiz}
                       disabled={isGeneratingQuiz}
                       className="w-full mt-4 bg-slate-800 hover:bg-slate-700 text-blue-400 border border-blue-500/30 font-bold py-3 rounded-lg transition-all disabled:opacity-50 text-sm"
                     >
@@ -529,7 +533,7 @@ function AcademicsPage() {
                 
                 {!hasStake && (
                   <div className="bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm p-4 rounded-xl mb-6">
-                    <strong>Note:</strong> You just completed a Mock Quiz to test the app! Because you haven't staked G$ yet, these points were not recorded on-chain. Stake now to start earning for real!
+                    <strong>Note:</strong> You just completed a Mock Quiz to test the app! Because you haven&apos;t staked G$ yet, these points were not recorded on-chain. Stake now to start earning for real!
                   </div>
                 )}
 
@@ -556,7 +560,7 @@ function AcademicsPage() {
                       ? '😔 All wrong — 3 points deducted as penalty.'
                       : correctAnswers === questions.length
                       ? `🎉 Perfect score! +${correctAnswers} points earned.`
-                      : `📚 ${correctAnswers} correct → +${correctAnswers} pts earned. No penalty while you're getting some right!`}
+                      : `📚 ${correctAnswers} correct → +${correctAnswers} pts earned. No penalty while you are getting some right!`}
                   </p>
                 </div>
 
