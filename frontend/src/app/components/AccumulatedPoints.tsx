@@ -39,18 +39,18 @@ export default function AccumulatedPoints() {
   
   if (!mounted) {
     return (
-      <div className="px-4 py-1.5 rounded-full bg-purple-900/30 border border-purple-500/30 flex items-center gap-2">
+      <div className="shrink-0 px-3 sm:px-4 py-1.5 rounded-full bg-purple-900/30 border border-purple-500/30 flex items-center gap-2">
         <span className="text-xs text-purple-400">⭐</span>
-        <span className="text-sm font-medium text-purple-300">0 pts</span>
+        <span className="whitespace-nowrap text-xs sm:text-sm font-medium text-purple-300">0 pts</span>
       </div>
     );
   }
   
   if (!isConnected) {
     return (
-      <div className="px-4 py-1.5 rounded-full bg-purple-900/30 border border-purple-500/30 flex items-center gap-2">
+      <div className="shrink-0 px-3 sm:px-4 py-1.5 rounded-full bg-purple-900/30 border border-purple-500/30 flex items-center gap-2">
         <span className="text-xs text-purple-400">⭐</span>
-        <span className="text-sm font-medium text-purple-300">0 pts</span>
+        <span className="whitespace-nowrap text-xs sm:text-sm font-medium text-purple-300">0 pts</span>
       </div>
     );
   }
@@ -61,9 +61,9 @@ export default function AccumulatedPoints() {
   const totalPoints = healthPoints + academicsPoints;
   
   return (
-    <div className="px-4 py-1.5 rounded-full bg-purple-900/30 border border-purple-500/30 flex items-center gap-2">
+    <div className="shrink-0 px-3 sm:px-4 py-1.5 rounded-full bg-purple-900/30 border border-purple-500/30 flex items-center gap-2">
       <span className="text-xs text-purple-400">⭐</span>
-      <span className="text-sm font-medium text-purple-300">{totalPoints} pts</span>
+      <span className="whitespace-nowrap text-xs sm:text-sm font-medium text-purple-300">{totalPoints} pts</span>
     </div>
   );
 }

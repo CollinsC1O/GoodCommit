@@ -36,11 +36,11 @@ export default function Home() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-16">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 sm:py-16">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <header className="mb-16 text-center">
-        <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight mb-6 text-slate-900 dark:text-white">
+      <header className="mb-10 sm:mb-16 text-center">
+        <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight mb-6 text-slate-900 dark:text-white">
           Grow your{' '}
           <span className="bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-400">
             Habit Garden
@@ -53,7 +53,7 @@ export default function Home() {
 
         {/* ── Identity badge (informational only — never blocks access) ──── */}
         {isConnected && (
-          <div className={`mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-full border text-sm transition-all
+          <div className={`mt-5 inline-flex max-w-full flex-wrap items-center justify-center gap-2 px-4 py-2 rounded-2xl sm:rounded-full border text-sm transition-all
             ${isVerified
               ? 'bg-green-500/10 border-green-500/30 text-green-300'
               : 'bg-slate-800/50 border-white/10 text-slate-400'
@@ -71,22 +71,22 @@ export default function Home() {
 
         {/* ── Wallet Summary ─────────────────────────────────────────────── */}
         {isConnected && (
-          <div className="mt-8 max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
+          <div className="mt-8 max-w-4xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="min-w-0 bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
               <div className="text-slate-400 text-sm mb-1">Wallet Balance</div>
-              <div className="text-2xl font-bold text-white">{parseFloat(balance).toFixed(2)} G$</div>
+              <div className="break-words text-xl sm:text-2xl font-bold text-white">{parseFloat(balance).toFixed(2)} G$</div>
             </div>
-            <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
+            <div className="min-w-0 bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
               <div className="text-slate-400 text-sm mb-1">Active Stake</div>
-              <div className="text-2xl font-bold text-emerald-400">{totalActiveStake.toFixed(2)} G$</div>
+              <div className="break-words text-xl sm:text-2xl font-bold text-emerald-400">{totalActiveStake.toFixed(2)} G$</div>
             </div>
-            <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
+            <div className="min-w-0 bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
               <div className="text-slate-400 text-sm mb-1">Current Points</div>
-              <div className="text-2xl font-bold text-purple-400">{healthPoints + academicsPoints}</div>
+              <div className="break-words text-xl sm:text-2xl font-bold text-purple-400">{healthPoints + academicsPoints}</div>
             </div>
-            <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
+            <div className="min-w-0 bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
               <div className="text-slate-400 text-sm mb-1">Activities</div>
-              <div className="text-2xl font-bold text-blue-400">
+              <div className="flex flex-wrap items-center justify-center text-xl sm:text-2xl font-bold text-blue-400">
                 <span title="Workouts">🏃 {totalWorkouts}</span>
                 <span className="mx-2 opacity-30">|</span>
                 <span title="Quizzes">📚 {totalQuizzes}</span>
@@ -106,7 +106,7 @@ export default function Home() {
           className="group relative block p-[1px] rounded-3xl overflow-hidden transition-all hover:scale-[1.02] text-left w-full disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <div className="absolute inset-0 bg-gradient-to-br from-green-400 to-blue-600 opacity-50 group-hover:opacity-100 transition-opacity" />
-          <div className="relative h-full bg-slate-900/90 backdrop-blur-xl rounded-3xl p-8 flex flex-col items-start border border-white/10">
+          <div className="relative h-full bg-slate-900/90 backdrop-blur-xl rounded-3xl p-5 sm:p-8 flex flex-col items-start border border-white/10">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500/20 to-blue-500/20 border border-white/10 flex items-center justify-center text-4xl mb-6 shadow-xl shadow-green-500/10">
               🏃‍♂️
             </div>
@@ -128,7 +128,7 @@ export default function Home() {
           className="group relative block p-[1px] rounded-3xl overflow-hidden transition-all hover:scale-[1.02] text-left w-full disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-pink-500 opacity-50 group-hover:opacity-100 transition-opacity" />
-          <div className="relative h-full bg-slate-900/90 backdrop-blur-xl rounded-3xl p-8 flex flex-col items-start border border-white/10">
+          <div className="relative h-full bg-slate-900/90 backdrop-blur-xl rounded-3xl p-5 sm:p-8 flex flex-col items-start border border-white/10">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-white/10 flex items-center justify-center text-4xl mb-6 shadow-xl shadow-purple-500/10">
               📚
             </div>

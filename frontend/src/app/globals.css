@@ -38,4 +38,16 @@ body {
 html {
   background: var(--background);
   transition: background-color 0.3s ease;
+  -webkit-text-size-adjust: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
 }

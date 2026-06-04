@@ -193,29 +193,29 @@ function HealthPage() {
   ];
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-8">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
       <Link href="/" className="text-sm font-medium text-slate-400 hover:text-white mb-8 inline-flex items-center gap-2 transition-colors">
         ← Back to Garden
       </Link>
       
-      <div className="flex flex-col lg:flex-row gap-8 items-start mt-4">
+      <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 items-start mt-4">
         {/* Left: Workout Interface */}
-        <div className="flex-1 w-full">
+        <div className="min-w-0 flex-1 w-full">
           <div className="inline-block px-3 py-1 mb-4 rounded-full bg-green-500/20 border border-green-500/30 text-green-400 text-sm font-semibold tracking-wide uppercase">
             Health & Fitness
           </div>
-          <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-6 text-white">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight mb-6 text-white">
             Sweat for your <span className="text-green-400">Garden</span>
           </h1>
           
           {!isConnected ? (
             <div className="space-y-6 max-w-lg">
-              <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-8 text-center">
+              <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-5 sm:p-8 text-center">
                 <p className="text-slate-400 mb-4">Connect your wallet to start your fitness journey</p>
               </div>
               
               {/* Plant Your Seed Panel - Shows when not connected */}
-              <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6">
+              <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-5 sm:p-6">
                 <h3 className="text-lg font-bold text-white mb-4">Plant Your Seed</h3>
                 <div className="space-y-4 opacity-50 pointer-events-none">
                   <div>
@@ -289,7 +289,7 @@ function HealthPage() {
             </div>
           ) : workoutStage === 'select' ? (
             <div className="space-y-6">
-              <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6">
+              <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-5 sm:p-6">
                 <h3 className="text-xl font-bold text-white mb-4">Select Your Exercise</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {exercises.map((exercise) => (
@@ -303,8 +303,8 @@ function HealthPage() {
                       }`}
                     >
                       <div className="flex items-center gap-3 mb-2">
-                        <span className="text-3xl">{exercise.icon}</span>
-                        <div>
+                        <span className="shrink-0 text-3xl">{exercise.icon}</span>
+                        <div className="min-w-0">
                           <div className="font-bold text-white">{exercise.name}</div>
                           <div className="text-xs text-slate-400">{exercise.desc}</div>
                         </div>
@@ -314,11 +314,11 @@ function HealthPage() {
                 </div>
               </div>
               
-              <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6">
+              <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-5 sm:p-6">
                 <h3 className="text-xl font-bold text-white mb-4">Workout Duration</h3>
                 
                 {/* Unit Selector */}
-                <div className="flex gap-2 mb-4">
+                <div className="grid grid-cols-3 gap-2 mb-4">
                   {(['seconds', 'minutes', 'hours'] as const).map((unit) => (
                     <button
                       key={unit}
@@ -339,16 +339,16 @@ function HealthPage() {
                 
                 {/* Custom Duration Input with Increment/Decrement */}
                 <div className="bg-slate-950/50 rounded-xl p-4 border border-slate-800">
-                  <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center justify-between gap-3 sm:gap-4">
                     <button
                       onClick={() => setWorkoutDuration(prev => Math.max(1, prev - 1))}
-                      className="w-12 h-12 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-xl transition-all active:scale-95"
+                      className="h-11 w-11 sm:w-12 sm:h-12 shrink-0 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-xl transition-all active:scale-95"
                     >
                       −
                     </button>
                     
                     <div className="flex-1 text-center">
-                      <div className="text-4xl font-bold text-white mb-1">
+                      <div className="text-3xl sm:text-4xl font-bold text-white mb-1">
                         {workoutDuration}
                       </div>
                       <div className="text-sm text-slate-400">
@@ -358,7 +358,7 @@ function HealthPage() {
                     
                     <button
                       onClick={() => setWorkoutDuration(prev => prev + 1)}
-                      className="w-12 h-12 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-xl transition-all active:scale-95"
+                      className="h-11 w-11 sm:w-12 sm:h-12 shrink-0 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-xl transition-all active:scale-95"
                     >
                       +
                     </button>
@@ -368,7 +368,7 @@ function HealthPage() {
                 {/* Quick Presets */}
                 <div className="mt-4">
                   <div className="text-xs text-slate-500 mb-2">Quick presets:</div>
-                  <div className="flex gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {durationUnit === 'seconds' && [30, 60, 90, 120].map((secs) => (
                       <button
                         key={secs}
@@ -422,13 +422,13 @@ function HealthPage() {
             </div>
           ) : workoutStage === 'active' ? (
             <div className="space-y-6">
-              <div className="bg-slate-900/80 backdrop-blur-xl border border-green-500/30 rounded-3xl p-8">
+              <div className="bg-slate-900/80 backdrop-blur-xl border border-green-500/30 rounded-3xl p-5 sm:p-8">
                 <div className="text-center mb-6">
                   <div className="text-6xl mb-4">{exercises.find(e => e.id === selectedExercise)?.icon}</div>
                   <h3 className="text-2xl font-bold text-white mb-2">
                     {exercises.find(e => e.id === selectedExercise)?.name}
                   </h3>
-                  <div className="text-5xl font-mono font-bold text-green-400 mb-2">
+                  <div className="text-4xl sm:text-5xl font-mono font-bold text-green-400 mb-2">
                     {formatTime(elapsedTime)}
                   </div>
                   <div className="text-sm text-slate-400">
@@ -436,19 +436,19 @@ function HealthPage() {
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className="grid grid-cols-1 min-[380px]:grid-cols-3 gap-3 sm:gap-4 mb-6">
                   <div className="bg-slate-950/50 rounded-xl p-4 text-center">
-                    <div className="text-2xl font-bold text-white">{points}</div>
+                    <div className="text-xl sm:text-2xl font-bold text-white">{points}</div>
                     <div className="text-xs text-slate-400">Points</div>
                   </div>
                   {(selectedExercise === 'walking' || selectedExercise === 'running') && (
                     <>
                       <div className="bg-slate-950/50 rounded-xl p-4 text-center">
-                        <div className="text-2xl font-bold text-white">{speed.toFixed(1)}</div>
+                        <div className="text-xl sm:text-2xl font-bold text-white">{speed.toFixed(1)}</div>
                         <div className="text-xs text-slate-400">km/h</div>
                       </div>
                       <div className="bg-slate-950/50 rounded-xl p-4 text-center">
-                        <div className="text-2xl font-bold text-white">{distance.toFixed(2)}</div>
+                        <div className="text-xl sm:text-2xl font-bold text-white">{distance.toFixed(2)}</div>
                         <div className="text-xs text-slate-400">km</div>
                       </div>
                     </>
@@ -474,15 +474,15 @@ function HealthPage() {
             </div>
           ) : (
             <div className="space-y-6">
-              <div className="bg-slate-900/80 backdrop-blur-xl border border-green-500/30 rounded-3xl p-8 text-center">
+              <div className="bg-slate-900/80 backdrop-blur-xl border border-green-500/30 rounded-3xl p-5 sm:p-8 text-center">
                 <div className="text-6xl mb-4">🎉</div>
                 <h3 className="text-2xl font-bold text-white mb-4">Workout Complete!</h3>
                 <div className="bg-green-500/20 border border-green-500/30 rounded-xl p-6 mb-6">
-                  <div className="text-5xl font-bold text-green-400 mb-2">+{points}</div>
+                  <div className="text-4xl sm:text-5xl font-bold text-green-400 mb-2">+{points}</div>
                   <div className="text-slate-300">Points Earned</div>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-4 mb-6 text-left">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-6 text-left">
                   <div className="bg-slate-950/50 rounded-xl p-4">
                     <div className="text-slate-400 text-sm">Duration</div>
                     <div className="text-white font-bold">{formatTime(elapsedTime)}</div>
@@ -517,13 +517,13 @@ function HealthPage() {
         </div>
 
         {/* Right: Plant Growth & Staking */}
-        <div className="w-full lg:w-96 space-y-6">
+        <div className="w-full lg:w-96 lg:shrink-0 space-y-6">
           {/* Plant Visualization */}
-          <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 flex flex-col items-center justify-center min-h-[550px] relative overflow-hidden">
+          <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-5 sm:p-8 flex flex-col items-center justify-center min-h-[360px] sm:min-h-[460px] lg:min-h-[550px] relative overflow-hidden">
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5" />
             
             <div className="relative z-10 text-center">
-              <div className={`w-48 h-48 mx-auto bg-slate-800 rounded-full border-4 ${
+              <div className={`w-36 h-36 sm:w-48 sm:h-48 mx-auto bg-slate-800 rounded-full border-4 ${
                 status === PlantStatus.Mature ? 'border-green-500 shadow-lg shadow-green-500/30' : 
                 status === PlantStatus.Withered ? 'border-red-500' : 
                 'border-slate-700'
@@ -531,11 +531,11 @@ function HealthPage() {
                 <div className={`absolute inset-0 rounded-full bg-gradient-to-br ${
                   status === PlantStatus.Mature ? 'from-green-500/30' : 'from-green-500/10'
                 } to-transparent`} />
-                <span className={`text-8xl z-10 ${!hasStake ? 'opacity-50 blur-[2px] filter grayscale' : ''}`}>
+                <span className={`text-6xl sm:text-8xl z-10 ${!hasStake ? 'opacity-50 blur-[2px] filter grayscale' : ''}`}>
                   {getPlantEmoji()}
                 </span>
               </div>
-              <h4 className="text-2xl font-semibold text-slate-300 mb-3">{getStatusText()}</h4>
+              <h4 className="text-xl sm:text-2xl font-semibold text-slate-300 mb-3">{getStatusText()}</h4>
               {hasStake && (
                 <div className="space-y-2">
                   <p className="text-base text-slate-500">Streak: {currentStreak} days</p>
@@ -548,7 +548,7 @@ function HealthPage() {
           
           {/* Staking Panel - Only shows when connected and no stake */}
           {!hasStake && isConnected && (
-            <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6">
+            <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-5 sm:p-6">
               <h3 className="text-lg font-bold text-white mb-4">Plant Your Seed</h3>
               <div className="space-y-4">
                 <div>
