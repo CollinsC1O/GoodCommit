@@ -16,7 +16,7 @@ export default function PointsDisplay() {
   
   if (!mounted) {
     return (
-      <div className="shrink-0 px-3 sm:px-4 py-1.5 rounded-full bg-slate-800/80 border border-white/5 flex items-center gap-2">
+      <div className="shrink-0 px-2.5 sm:px-4 py-1.5 rounded-full bg-slate-800/80 border border-white/5 flex items-center gap-2">
         <span className="whitespace-nowrap text-xs sm:text-sm font-medium text-slate-500">0.00 G$</span>
       </div>
     );
@@ -24,7 +24,7 @@ export default function PointsDisplay() {
   
   if (!isConnected) {
     return (
-      <div className="shrink-0 px-3 sm:px-4 py-1.5 rounded-full bg-slate-800/80 border border-white/5 flex items-center gap-2">
+      <div className="shrink-0 px-2.5 sm:px-4 py-1.5 rounded-full bg-slate-800/80 border border-white/5 flex items-center gap-2">
         <span className="whitespace-nowrap text-xs sm:text-sm font-medium text-slate-500">0.00 G$</span>
       </div>
     );
@@ -33,7 +33,7 @@ export default function PointsDisplay() {
   const displayBalance = parseFloat(balance).toFixed(2);
   
   return (
-    <div className="shrink-0 px-3 sm:px-4 py-1.5 rounded-full bg-slate-800/80 border border-white/5 flex items-center gap-2">
+    <div className="shrink-0 px-2.5 sm:px-4 py-1.5 rounded-full bg-slate-800/80 border border-white/5 flex items-center gap-2">
       <span className="whitespace-nowrap text-xs sm:text-sm font-medium text-emerald-400">{displayBalance} G$</span>
     </div>
   );
