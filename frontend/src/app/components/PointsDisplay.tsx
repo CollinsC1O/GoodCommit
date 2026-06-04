@@ -10,7 +10,8 @@ export default function PointsDisplay() {
   const { balance } = useGToken();
   
   useEffect(() => {
-    setMounted(true);
+    const frame = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(frame);
   }, []);
   
   if (!mounted) {

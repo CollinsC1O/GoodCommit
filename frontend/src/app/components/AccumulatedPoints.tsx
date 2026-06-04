@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react';
 import { useReadContract } from 'wagmi';
 import { STAKING_CONTRACT_ADDRESS, STAKING_ABI, HabitType } from '@/config/abis';
 
+type StakeInfo = readonly [bigint, bigint, bigint, bigint, number, bigint];
+
 export default function AccumulatedPoints() {
   const [mounted, setMounted] = useState(false);
   const { address, isConnected } = useAccount();
@@ -34,7 +36,8 @@ export default function AccumulatedPoints() {
   });
   
   useEffect(() => {
-    setMounted(true);
+    const frame = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(frame);
   }, []);
   
   if (!mounted) {
@@ -56,8 +59,8 @@ export default function AccumulatedPoints() {
   }
   
   // Calculate total points from both habits
-  const healthPoints = healthStake ? Number((healthStake as any)[1]) : 0; // points is index 1
-  const academicsPoints = academicsStake ? Number((academicsStake as any)[1]) : 0;
+  const healthPoints = healthStake ? Number((healthStake as StakeInfo)[1]) : 0; // points is index 1
+  const academicsPoints = academicsStake ? Number((academicsStake as StakeInfo)[1]) : 0;
   const totalPoints = healthPoints + academicsPoints;
   
   return (

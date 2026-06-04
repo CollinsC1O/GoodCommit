@@ -313,24 +313,24 @@ function AcademicsPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-6xl mx-auto px-6 py-8">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
       <Link href="/" className="text-sm font-medium text-slate-400 hover:text-white mb-8 inline-flex items-center gap-2 transition-colors">
         ← Back to Garden
       </Link>
 
-      <div className="flex flex-col lg:flex-row gap-8 items-start mt-4">
+      <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 items-start mt-4">
 
         {/* Left: Quiz Interface */}
-        <div className="flex-1 w-full">
+        <div className="min-w-0 flex-1 w-full">
           <div className="inline-block px-3 py-1 mb-4 rounded-full bg-purple-500/20 border border-purple-500/30 text-purple-400 text-sm font-semibold tracking-wide uppercase">
             Academics
           </div>
-          <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-6 text-white">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight mb-6 text-white">
             Learn and <span className="text-purple-400">Flourish</span>
           </h1>
 
           {!isConnected ? (
-            <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-8 text-center">
+            <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-5 sm:p-8 text-center">
               <p className="text-slate-400 mb-4">Connect your wallet to start learning</p>
             </div>
 
@@ -338,7 +338,7 @@ function AcademicsPage() {
             <div className="space-y-8">
               {/* STAKING SECTION - Only shown if they haven't staked */}
               {!hasStake && (
-                <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6 relative z-10">
+                <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-5 sm:p-6 relative z-10">
                   <h3 className="text-xl font-bold text-white mb-4">Plant Your Seed (Stake G$)</h3>
                   <p className="text-slate-400 text-sm mb-6">
                     You must stake G$ to unlock the study portal, take quizzes, and earn points.
@@ -391,7 +391,7 @@ function AcademicsPage() {
               {quizStage === 'upload' ? (
                 <div className="space-y-6 relative">
                   
-                  <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-6">
+                  <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-3xl p-5 sm:p-6">
                     <h3 className="text-xl font-bold text-white mb-4">Start a Study Session</h3>
                 <p className="text-slate-400 text-sm mb-6">
                   Choose how you want to be tested today.
@@ -399,7 +399,7 @@ function AcademicsPage() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* File Upload Option */}
-                  <div className="border border-slate-700 rounded-xl p-6 text-center hover:border-purple-500/50 transition-all bg-slate-950/50">
+                  <div className="min-w-0 border border-slate-700 rounded-xl p-5 sm:p-6 text-center hover:border-purple-500/50 transition-all bg-slate-950/50">
                     <input type="file" accept=".pdf" onChange={handleFileUpload} className="hidden" id="pdf-upload" />
                     <label htmlFor="pdf-upload" className="cursor-pointer block">
                       <div className="text-4xl mb-3">📄</div>
@@ -429,7 +429,7 @@ function AcademicsPage() {
                   </div>
 
                   {/* Mock Quiz Option */}
-                  <div className="border border-slate-700 rounded-xl p-6 text-center hover:border-blue-500/50 transition-all bg-slate-950/50 flex flex-col">
+                  <div className="min-w-0 border border-slate-700 rounded-xl p-5 sm:p-6 text-center hover:border-blue-500/50 transition-all bg-slate-950/50 flex flex-col">
                     <div className="text-4xl mb-3">🤖</div>
                     <h4 className="font-bold text-white mb-2">Try Mock Quiz</h4>
                     <p className="text-slate-500 text-xs mb-auto">
@@ -462,8 +462,8 @@ function AcademicsPage() {
 
           ) : quizStage === 'quiz' ? (
             <div className="space-y-6">
-              <div className="bg-slate-900/80 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-8">
-                <div className="flex justify-between items-center mb-6">
+              <div className="bg-slate-900/80 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-5 sm:p-8">
+                <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center mb-6">
                   <div className="text-sm text-slate-400">
                     Question {currentQuestionIndex + 1} of {questions.length}
                   </div>
@@ -481,7 +481,7 @@ function AcademicsPage() {
                   </div>
                 </div>
 
-                <h3 className="text-2xl font-bold text-white mb-6">
+                <h3 className="text-xl sm:text-2xl font-bold text-white mb-6">
                   {questions[currentQuestionIndex]?.question}
                 </h3>
 
@@ -490,7 +490,7 @@ function AcademicsPage() {
                     <button
                       key={index}
                       onClick={() => handleAnswerSelect(index)}
-                      className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
+                      className={`w-full break-words text-left p-4 rounded-xl border-2 transition-all ${
                         questions[currentQuestionIndex].userAnswer === index
                           ? 'bg-purple-500/20 border-purple-500 text-white'
                           : 'bg-slate-800/50 border-slate-700 text-slate-300 hover:border-slate-600'
@@ -505,13 +505,13 @@ function AcademicsPage() {
                 <button
                   onClick={submitAnswer}
                   disabled={questions[currentQuestionIndex]?.userAnswer === undefined}
-                  className="w-full bg-gradient-to-r from-purple-500 to-pink-600 text-white font-bold text-lg py-4 rounded-xl hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full bg-gradient-to-r from-purple-500 to-pink-600 text-white font-bold text-base sm:text-lg py-4 rounded-xl hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {currentQuestionIndex < questions.length - 1 ? 'Next Question →' : 'Finish Quiz'}
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
                 <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 text-center">
                   <div className="text-2xl font-bold text-green-400">{correctAnswers}</div>
                   <div className="text-xs text-slate-400">Correct</div>
@@ -525,7 +525,7 @@ function AcademicsPage() {
 
           ) : quizStage === 'results' ? (
             <div className="space-y-6">
-              <div className="bg-slate-900/80 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-8 text-center">
+              <div className="bg-slate-900/80 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-5 sm:p-8 text-center">
                 <div className="text-6xl mb-4">
                   {correctAnswers === questions.length ? '🎉' : correctAnswers > 0 ? '📚' : '😔'}
                 </div>
@@ -537,17 +537,17 @@ function AcademicsPage() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className="grid grid-cols-1 min-[380px]:grid-cols-3 gap-3 sm:gap-4 mb-6">
                   <div className="bg-slate-950/50 rounded-xl p-4">
-                    <div className="text-2xl font-bold text-green-400">{correctAnswers}</div>
+                    <div className="text-xl sm:text-2xl font-bold text-green-400">{correctAnswers}</div>
                     <div className="text-xs text-slate-400">Correct</div>
                   </div>
                   <div className="bg-slate-950/50 rounded-xl p-4">
-                    <div className="text-2xl font-bold text-red-400">{wrongAnswers}</div>
+                    <div className="text-xl sm:text-2xl font-bold text-red-400">{wrongAnswers}</div>
                     <div className="text-xs text-slate-400">Wrong</div>
                   </div>
                   <div className="bg-slate-950/50 rounded-xl p-4">
-                    <div className={`text-2xl font-bold ${(netPointsLastQuiz ?? 0) >= 0 ? 'text-purple-400' : 'text-red-400'}`}>
+                    <div className={`text-xl sm:text-2xl font-bold ${(netPointsLastQuiz ?? 0) >= 0 ? 'text-purple-400' : 'text-red-400'}`}>
                       {(netPointsLastQuiz ?? 0) >= 0 ? '+' : ''}{netPointsLastQuiz ?? 0}
                     </div>
                     <div className="text-xs text-slate-400">Net Points</div>
@@ -564,9 +564,9 @@ function AcademicsPage() {
                   </p>
                 </div>
 
-                <div className="bg-purple-500/20 border border-purple-500/30 rounded-xl p-6 mb-6">
+                <div className="bg-purple-500/20 border border-purple-500/30 rounded-xl p-5 sm:p-6 mb-6">
                   <div className="text-sm text-slate-400 mb-2">Total Points (on-chain)</div>
-                  <div className="text-5xl font-bold text-purple-400">{onChainPoints}</div>
+                  <div className="text-4xl sm:text-5xl font-bold text-purple-400">{onChainPoints}</div>
                   <div className="text-xs text-slate-500 mt-1">
                     ≈ {(onChainPoints * 0.1).toFixed(1)} G$ at harvest
                   </div>
@@ -581,7 +581,7 @@ function AcademicsPage() {
                       <button
                         onClick={handleClaimPoints}
                         disabled={isClaimingPoints}
-                        className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold py-4 rounded-xl hover:shadow-lg transition-all"
+                        className="w-full break-words bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold py-4 px-3 rounded-xl hover:shadow-lg transition-all"
                       >
                         {isClaimingPoints ? "Claiming..." : `Claim ${onChainPoints} pts → ${(onChainPoints * 0.1).toFixed(1)} G$`}
                       </button>
@@ -603,7 +603,7 @@ function AcademicsPage() {
                     </div>
                     <button
                       onClick={() => { setQuizStage('upload'); setUploadedFile(null); }}
-                      className="w-full bg-gradient-to-r from-purple-500 to-pink-600 text-white font-bold text-lg py-4 rounded-xl hover:shadow-lg transition-all"
+                      className="w-full bg-gradient-to-r from-purple-500 to-pink-600 text-white font-bold text-base sm:text-lg py-4 rounded-xl hover:shadow-lg transition-all"
                     >
                       Take Another Quiz
                     </button>
@@ -617,26 +617,26 @@ function AcademicsPage() {
         </div>
 
         {/* Right: Plant Growth Visualization */}
-        <div className="w-full lg:w-96 space-y-6">
-          <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 flex flex-col items-center justify-center min-h-[550px] relative overflow-hidden">
+        <div className="w-full lg:w-96 lg:shrink-0 space-y-6">
+          <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-5 sm:p-8 flex flex-col items-center justify-center min-h-[360px] sm:min-h-[460px] lg:min-h-[550px] relative overflow-hidden">
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5" />
             <div className="relative z-10 text-center">
-              <div className={`w-48 h-48 mx-auto bg-slate-800 rounded-full border-4 ${
+              <div className={`w-36 h-36 sm:w-48 sm:h-48 mx-auto bg-slate-800 rounded-full border-4 ${
                 contractStatus === PlantStatus.Fruiting ? 'border-purple-500 shadow-lg shadow-purple-500/30' :
                 contractStatus === PlantStatus.Withered ? 'border-red-500' : 'border-slate-700'
               } flex items-center justify-center shadow-inner mb-8 relative overflow-hidden`}>
                 <div className={`absolute inset-0 rounded-full bg-gradient-to-br ${
                   contractStatus === PlantStatus.Fruiting ? 'from-purple-500/30' : 'from-purple-500/10'
                 } to-transparent`} />
-                <span className="text-8xl z-10">{getPlantEmoji()}</span>
+                <span className="text-6xl sm:text-8xl z-10">{getPlantEmoji()}</span>
               </div>
 
-              <h4 className="text-2xl font-semibold text-slate-300 mb-3">{getPlantStatusText()}</h4>
+              <h4 className="text-xl sm:text-2xl font-semibold text-slate-300 mb-3">{getPlantStatusText()}</h4>
 
               <div className="space-y-2">
                 <div className="bg-slate-950/50 rounded-xl p-4">
                   <div className="text-sm text-slate-400 mb-1">Total Points (on-chain)</div>
-                  <div className="text-3xl font-bold text-purple-400">{onChainPoints}</div>
+                  <div className="text-2xl sm:text-3xl font-bold text-purple-400">{onChainPoints}</div>
                   <div className="text-xs text-slate-500 mt-1">
                     ≈ {(onChainPoints * 0.1).toFixed(1)} G$ at harvest
                   </div>
