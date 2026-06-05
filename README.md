@@ -326,4 +326,5 @@ Special thanks to:
 **Built with 💚 for the GoodDollar ecosystem**
 
 _"The best time to plant a tree was 20 years ago. The second best time is now."_ 
-Built with 💚 for the GoodDollar ecosystem
+
+_"The very best time to improve on your good habbits is definitely now."_ 
