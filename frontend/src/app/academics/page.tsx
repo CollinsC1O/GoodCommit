@@ -98,6 +98,8 @@ function AcademicsPage() {
   // stakeInfo: [stakedAmount, points, duration, currentStreak, status, lastActivity]
   const hasStake = stakeInfo && stakeInfo[0] > BigInt(0);
   const onChainPoints = hasStake ? Number(stakeInfo[1]) : 0;
+  const pendingQuizPoints = quizStage === 'results' && netPointsLastQuiz !== null ? netPointsLastQuiz : 0;
+  const habitTotalPoints = onChainPoints + pendingQuizPoints;
 
   // stakeInfo[4] is PlantStatus enum directly from contract
   // We use this — NOT a local threshold computation — to avoid drift
@@ -565,10 +567,12 @@ function AcademicsPage() {
                 </div>
 
                 <div className="bg-purple-500/20 border border-purple-500/30 rounded-xl p-5 sm:p-6 mb-6">
-                  <div className="text-sm text-slate-400 mb-2">Total Points (on-chain)</div>
-                  <div className="text-4xl sm:text-5xl font-bold text-purple-400">{onChainPoints}</div>
+                  <div className="text-sm text-slate-400 mb-2">Total Points (this habit)</div>
+                  <div className="text-4xl sm:text-5xl font-bold text-purple-400">{habitTotalPoints}</div>
                   <div className="text-xs text-slate-500 mt-1">
-                    ≈ {(onChainPoints * 0.1).toFixed(1)} G$ at harvest
+                    {pendingQuizPoints !== 0
+                      ? `Includes ${pendingQuizPoints >= 0 ? '+' : ''}${pendingQuizPoints} pending quiz points`
+                      : 'On-chain total'}
                   </div>
                 </div>
 
@@ -635,10 +639,12 @@ function AcademicsPage() {
 
               <div className="space-y-2">
                 <div className="bg-slate-950/50 rounded-xl p-4">
-                  <div className="text-sm text-slate-400 mb-1">Total Points (on-chain)</div>
-                  <div className="text-2xl sm:text-3xl font-bold text-purple-400">{onChainPoints}</div>
+                  <div className="text-sm text-slate-400 mb-1">Total Points (this habit)</div>
+                  <div className="text-2xl sm:text-3xl font-bold text-purple-400">{habitTotalPoints}</div>
                   <div className="text-xs text-slate-500 mt-1">
-                    ≈ {(onChainPoints * 0.1).toFixed(1)} G$ at harvest
+                    {pendingQuizPoints > 0
+                      ? `Includes +${pendingQuizPoints} quiz points pending update`
+                      : 'On-chain total'}
                   </div>
                 </div>
 

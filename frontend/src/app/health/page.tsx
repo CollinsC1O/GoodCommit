@@ -153,6 +153,8 @@ function HealthPage() {
   const hasStake = stakeInfo && stakeInfo[0] > BigInt(0);
   const stakedAmount = hasStake ? formatUnits(stakeInfo[0], 18) : '0';
   const accumulatedPoints = hasStake ? Number(stakeInfo[1]) : 0; // Points from contract
+  const sessionPoints = points;
+  const habitTotalPoints = accumulatedPoints + sessionPoints;
   const duration = hasStake ? Number(stakeInfo[2]) : 0;
   const currentStreak = hasStake ? Number(stakeInfo[3]) : 0;
   const status = hasStake ? stakeInfo[4] : PlantStatus.Seed;
@@ -537,10 +539,18 @@ function HealthPage() {
               </div>
               <h4 className="text-xl sm:text-2xl font-semibold text-slate-300 mb-3">{getStatusText()}</h4>
               {hasStake && (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <p className="text-base text-slate-500">Streak: {currentStreak} days</p>
-                  <p className="text-base text-emerald-400 font-mono">Points: {accumulatedPoints}</p>
-                  <p className="text-xs text-slate-500">≈ {(accumulatedPoints * 0.1).toFixed(2)} G$</p>
+                  <div className="bg-slate-950/50 rounded-xl p-4">
+                    <div className="text-xs text-slate-400 mb-1">Habit Points</div>
+                    <div className="text-2xl font-bold text-purple-400">{habitTotalPoints}</div>
+                    <div className="text-xs text-slate-500">
+                      {sessionPoints > 0
+                        ? `${accumulatedPoints} on-chain + ${sessionPoints} session`
+                        : `${accumulatedPoints} on-chain`}
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500">≈ {(habitTotalPoints * 0.1).toFixed(2)} G$</p>
                 </div>
               )}
             </div>

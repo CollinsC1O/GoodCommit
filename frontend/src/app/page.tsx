@@ -81,8 +81,12 @@ export default function Home() {
               <div className="break-words text-xl sm:text-2xl font-bold text-emerald-400">{totalActiveStake.toFixed(2)} G$</div>
             </div>
             <div className="min-w-0 bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
-              <div className="text-slate-400 text-sm mb-1">Current Points</div>
+              <div className="text-slate-400 text-sm mb-1">Total Habit Points</div>
               <div className="break-words text-xl sm:text-2xl font-bold text-purple-400">{healthPoints + academicsPoints}</div>
+              <div className="mt-2 text-xs text-slate-500 space-y-1">
+                <div>Health & Fitness: {healthPoints} pts</div>
+                <div>Academics: {academicsPoints} pts</div>
+              </div>
             </div>
             <div className="min-w-0 bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
               <div className="text-slate-400 text-sm mb-1">Activities</div>
