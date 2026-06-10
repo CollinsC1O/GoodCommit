@@ -14,7 +14,7 @@ type WorkoutStage = 'select' | 'active' | 'complete';
 function HealthPage() {
   const { isConnected, address } = useAccount();
   const { balance, approveStaking, isApproving, isApproved } = useGToken();
-  const { stakeInfo, plantStage, plantSeed, isPlanting, isPlanted, refetchStake } = useStaking(HabitType.Health);
+  const { stakeInfo, plantStage, plantSeed, isPlanting, isPlanted, refetchStake, refetchPlantStage } = useStaking(HabitType.Health);
   
   // Staking state
   const [stakeDurationSeconds, setStakeDurationSeconds] = useState(0);
@@ -131,8 +131,9 @@ function HealthPage() {
         alert(`Failed to record workout: ${data.message || data.error}`);
       } else {
         console.log('Workout recorded:', data);
-        // Refetch stake info to update plant status
-        refetchStake();
+        // Refresh both stake and plant stage state after activity
+        await refetchStake();
+        await refetchPlantStage();
       }
     } catch (error) {
       console.error('Error recording workout:', error);

@@ -48,6 +48,7 @@ function AcademicsPage() {
     isPlanting,
     isPlanted,
     refetchStake,
+    refetchPlantStage,
     claimPoints,
     isClaimingPoints,
     isPointsClaimed,
@@ -276,7 +277,8 @@ function AcademicsPage() {
         alert(`Failed to submit quiz: ${data.message || data.error}`);
       } else {
         console.log('Quiz submitted on-chain:', data);
-        refetchStake(); // Refresh plant status from contract
+        await refetchStake();
+        await refetchPlantStage();
       }
     } catch (error) {
       console.error('Error submitting quiz:', error);
@@ -292,7 +294,8 @@ function AcademicsPage() {
       await claimPoints();
       setQuizStage('upload');
       setUploadedFile(null);
-      refetchStake();
+      await refetchStake();
+      await refetchPlantStage();
     } catch (error) {
       console.error('Claim failed:', error);
       alert('Failed to claim points. Please try again.');
@@ -304,7 +307,8 @@ function AcademicsPage() {
       await unstakeTokens();
       setQuizStage('upload');
       setUploadedFile(null);
-      refetchStake();
+      await refetchStake();
+      await refetchPlantStage();
     } catch (error) {
       console.error('Unstake failed:', error);
       alert('Failed to unstake. Please try again.');

@@ -355,10 +355,11 @@ app.post('/api/quiz/submit', async (req, res) => {
     if (!userAddress)    return res.status(400).json({ error: 'Missing userAddress' });
     if (!Array.isArray(answers) || !answers.length) return res.status(400).json({ error: 'answers array required' });
 
-    const numQ    = totalQuestions || answers.length;
-    const correct = calculateQuizScore(answers);
-    const earned  = correct;
-    const penalty = correct === 0 ? -3 : 0;
+    const numQ             = totalQuestions || answers.length;
+    const correct          = calculateQuizScore(answers);
+    const pointsPerQuestion = 1;
+    const earned           = correct * pointsPerQuestion;
+    const penalty          = correct === 0 ? -3 : 0;
 
     const sc      = new ethers.Contract(process.env.STAKING_CONTRACT_ADDRESS, STAKING_ABI, verifierWallet);
     const tx      = await sc.recordQuiz(userAddress, 1, correct, numQ, earned, penalty);
