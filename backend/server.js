@@ -276,14 +276,14 @@ app.get('/api/user/stake/:address/:habitType', async (req, res) => {
 
     const stake = await withFallback(async (provider) => {
       const sc = new ethers.Contract(process.env.STAKING_CONTRACT_ADDRESS, STAKING_ABI, provider);
-      const [stakedAmount, points, duration, currentStreak, status, lastActivityTime] =
-        await sc.getStakeInfo(addr, habitType);
+      const [stakedAmount, points, lastActivityTime, commitmentEnd, active] =
+        await sc.getHabitStake(addr, habitType);
       return {
         stakedAmount:     stakedAmount.toString(),
         points:           points.toString(),
         lastActivityTime: lastActivityTime.toString(),
-        duration:         duration.toString(),
-        status:           Number(status),
+        commitmentEnd:    commitmentEnd.toString(),
+        active,
       };
     });
 

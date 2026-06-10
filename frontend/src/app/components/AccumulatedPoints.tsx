@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { useReadContract } from 'wagmi';
 import { STAKING_CONTRACT_ADDRESS, STAKING_ABI, HabitType } from '@/config/abis';
 
-type StakeInfo = readonly [bigint, bigint, bigint, bigint, number, bigint];
+type StakeInfo = readonly [bigint, bigint, bigint, bigint, boolean];
 
 export default function AccumulatedPoints() {
   const [mounted, setMounted] = useState(false);
@@ -15,7 +15,7 @@ export default function AccumulatedPoints() {
   const { data: healthStake } = useReadContract({
     address: STAKING_CONTRACT_ADDRESS,
     abi: STAKING_ABI,
-    functionName: 'getStakeInfo',
+    functionName: 'getHabitStake',
     args: address ? [address, HabitType.Health] : undefined,
     query: {
       enabled: !!address && isConnected,
@@ -27,7 +27,7 @@ export default function AccumulatedPoints() {
   const { data: academicsStake } = useReadContract({
     address: STAKING_CONTRACT_ADDRESS,
     abi: STAKING_ABI,
-    functionName: 'getStakeInfo',
+    functionName: 'getHabitStake',
     args: address ? [address, HabitType.Academics] : undefined,
     query: {
       enabled: !!address && isConnected,

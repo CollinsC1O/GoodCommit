@@ -14,7 +14,7 @@ type WorkoutStage = 'select' | 'active' | 'complete';
 function HealthPage() {
   const { isConnected, address } = useAccount();
   const { balance, approveStaking, isApproving, isApproved } = useGToken();
-  const { stakeInfo, plantSeed, isPlanting, isPlanted, refetchStake } = useStaking(HabitType.Health);
+  const { stakeInfo, plantStage, plantSeed, isPlanting, isPlanted, refetchStake } = useStaking(HabitType.Health);
   
   // Staking state
   const [stakeDurationSeconds, setStakeDurationSeconds] = useState(0);
@@ -155,11 +155,12 @@ function HealthPage() {
   const accumulatedPoints = hasStake ? Number(stakeInfo[1]) : 0; // Points from contract
   const sessionPoints = points;
   const habitTotalPoints = accumulatedPoints + sessionPoints;
-  const duration = hasStake ? Number(stakeInfo[2]) : 0;
-  const currentStreak = hasStake ? Number(stakeInfo[3]) : 0;
-  const status = hasStake ? stakeInfo[4] : PlantStatus.Seed;
-  const lastActivity = hasStake ? Number(stakeInfo[5]) : 0;
-  
+  const lastActivity = hasStake ? Number(stakeInfo[2]) : 0;
+  const commitmentEnd = hasStake ? Number(stakeInfo[3]) : 0;
+  const activeStake = hasStake ? Boolean(stakeInfo[4]) : false;
+  const status = hasStake && plantStage !== undefined ? Number(plantStage) as PlantStatus : PlantStatus.Seed;
+  const currentStreak = activeStake ? 1 : 0;
+
   const getPlantEmoji = () => {
     if (!hasStake) return '🌱';
     if (status === PlantStatus.Withered) return '🥀';
@@ -172,12 +173,11 @@ function HealthPage() {
   
   const getStatusText = () => {
     if (!hasStake) return 'Plant Your First Seed';
-    if (status === PlantStatus.Withered) return 'Withered - Restart Your Journey';
     if (status === PlantStatus.Fruiting) return 'Fruiting - Ready to Harvest!';
     if (status === PlantStatus.Mature) return 'Mature Plant';
     if (status === PlantStatus.Growing) return 'Growing Strong';
     if (status === PlantStatus.Sprout) return 'Sprouting';
-    return `Growing (Day ${currentStreak}/${duration})`;
+    return 'Seed Stage';
   };
   
   const formatTime = (seconds: number) => {

@@ -43,6 +43,7 @@ function AcademicsPage() {
   const { balance, approveStaking, isApproving, isApproved } = useGToken();
   const {
     stakeInfo,
+    plantStage,
     plantSeed,
     isPlanting,
     isPlanted,
@@ -95,16 +96,13 @@ function AcademicsPage() {
   }, [isPlanted, refetchStake]);
 
   // ── On-chain data (single source of truth) ───────────────────────────────
-  // stakeInfo: [stakedAmount, points, duration, currentStreak, status, lastActivity]
   const hasStake = stakeInfo && stakeInfo[0] > BigInt(0);
   const onChainPoints = hasStake ? Number(stakeInfo[1]) : 0;
   const pendingQuizPoints = quizStage === 'results' && netPointsLastQuiz !== null ? netPointsLastQuiz : 0;
   const habitTotalPoints = onChainPoints + pendingQuizPoints;
 
-  // stakeInfo[4] is PlantStatus enum directly from contract
-  // We use this — NOT a local threshold computation — to avoid drift
-  const contractStatus: PlantStatus = hasStake
-    ? (stakeInfo[4] as PlantStatus)
+  const contractStatus: PlantStatus = hasStake && plantStage !== undefined
+    ? Number(plantStage) as PlantStatus
     : PlantStatus.Seed;
 
   // Harvest only available when contract says Fruiting (≥ 100 pts)

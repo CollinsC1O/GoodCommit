@@ -9,11 +9,21 @@ export function useStaking(habitType: HabitType) {
   const { address, chainId } = useAccount();
   const contracts = getContracts(chainId || 44787);
   
-  // Read stake info - UPDATED to match contract return values
+  // Read stake info from the deployed contract
   const { data: stakeInfo, refetch: refetchStake } = useReadContract({
     address: contracts.staking as `0x${string}`,
     abi: STAKING_ABI,
-    functionName: 'getStakeInfo',
+    functionName: 'getHabitStake',
+    args: address ? [address, habitType] : undefined,
+    query: {
+      enabled: !!address && (contracts.staking as string) !== '0x0000000000000000000000000000000000000000',
+    },
+  });
+
+  const { data: plantStage, refetch: refetchPlantStage } = useReadContract({
+    address: contracts.staking as `0x${string}`,
+    abi: STAKING_ABI,
+    functionName: 'getPlantStage',
     args: address ? [address, habitType] : undefined,
     query: {
       enabled: !!address && (contracts.staking as string) !== '0x0000000000000000000000000000000000000000',
@@ -111,8 +121,9 @@ export function useStaking(habitType: HabitType) {
   };
   
   return {
-    // Data - UPDATED to match contract return: [stakedAmount, points, duration, currentStreak, status, lastActivity]
-    stakeInfo: stakeInfo as [bigint, bigint, bigint, bigint, number, bigint] | undefined,
+    // Data - matches contract return: [stakedAmount, points, lastActivityTime, commitmentEnd, active]
+    stakeInfo: stakeInfo as [bigint, bigint, bigint, bigint, boolean] | undefined,
+    plantStage: plantStage as bigint | undefined,
     userProfile: userProfile as [boolean, boolean, bigint, bigint, bigint, bigint, bigint] | undefined,
     
     // Initial seed
@@ -137,6 +148,7 @@ export function useStaking(habitType: HabitType) {
     
     // Refetch
     refetchStake,
+    refetchPlantStage,
     refetchProfile,
   };
 }
