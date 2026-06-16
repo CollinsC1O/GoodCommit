@@ -4,6 +4,7 @@ const cors    = require('cors');
 const multer  = require('multer');
 const { ethers } = require('ethers');
 const pdfParse = require('pdf-parse');
+const { getStreak, recordVerifiedActivity } = require('./streakService');
 
 const app = express();
 app.use(cors());
@@ -264,7 +265,28 @@ app.get('/api/user/profile/:address', async (req, res) => {
 });
 
 // ── Habit stake ───────────────────────────────────────────────────────────────
+app.get('/api/user/streak/:address', async (req, res) => {
+  try {
+    const addr = ethers.getAddress(req.params.address);
+    const streak = getStreak(addr);
 
+    if (!streak) {
+      return res.json({
+        currentStreak: 0,
+        longestStreak: 0,
+        totalDaysActive: 0,
+        lastActivityDate: null,
+        streakStartDate: null,
+        createdAt: null,
+        updatedAt: null,
+      });
+    }
+
+    res.json(streak);
+  } catch (err) {
+    res.status(400).json({ error: 'Invalid wallet address' });
+  }
+});
 app.get('/api/user/stake/:address/:habitType', async (req, res) => {
   try {
     if (!process.env.STAKING_CONTRACT_ADDRESS) {
@@ -365,6 +387,15 @@ app.post('/api/quiz/submit', async (req, res) => {
     const tx      = await sc.recordQuiz(userAddress, 1, correct, numQ, earned, penalty);
     const receipt = await tx.wait();
 
+    let streakProfile = null;
+    let streakError = null;
+    try {
+      streakProfile = recordVerifiedActivity(userAddress);
+    } catch (streakErr) {
+      streakError = streakErr instanceof Error ? streakErr.message : String(streakErr);
+      console.error('Streak update error:', streakError);
+    }
+
     res.json({
       success:        true,
       correctAnswers: correct,
@@ -375,6 +406,8 @@ app.post('/api/quiz/submit', async (req, res) => {
       netPoints:      earned + penalty,
       score:          Math.round((correct / numQ) * 100),
       txHash:         receipt.hash,
+      streak:         streakProfile,
+      streakError,
       message: correct === 0    ? `All wrong! -3 pts 😔`
               : correct === numQ ? `Perfect! +${earned} pts 🎉`
               :                    `+${earned} pts 📚`,
@@ -404,12 +437,23 @@ app.post('/api/workout/record', async (req, res) => {
     const tx      = await sc.recordWorkout(userAddress, 0, duration, pts, exerciseType);
     const receipt = await tx.wait();
 
+    let streakProfile = null;
+    let streakError = null;
+    try {
+      streakProfile = recordVerifiedActivity(userAddress);
+    } catch (streakErr) {
+      streakError = streakErr instanceof Error ? streakErr.message : String(streakErr);
+      console.error('Streak update error:', streakError);
+    }
+
     res.json({
       success:      true,
       pointsEarned: pts,
       duration,
       exerciseType,
       txHash:       receipt.hash,
+      streak:       streakProfile,
+      streakError,
       message:      `Workout recorded! +${pts} pts 💪`,
     });
   } catch (err) {
@@ -492,25 +536,30 @@ function validateGPS(gpsData, speed, exerciseType) {
 
 // ==================== START ====================
 
-app.listen(PORT, () => {
-  console.log(`\n🚀  GoodCommit Backend — port ${PORT}`);
-  console.log(`Env:              ${process.env.NODE_ENV || 'development'}`);
-  console.log(`Verifier wallet:  ${verifierWallet?.address || '❌ not configured'}`);
-  console.log(`Staking contract: ${process.env.STAKING_CONTRACT_ADDRESS || '❌ not configured'}`);
-  console.log(`Identity:         ${IDENTITY_ADDRESS}  (Celo mainnet)`);
-  console.log(`RPC fallbacks:    ${CELO_MAINNET_RPCS.join(' → ')}\n`);
-  console.log(`GET  /health`);
-  console.log(`GET  /api/verify/status/:address         (identity badge)`);
-  console.log(`GET  /api/seed/eligibility/:address      (pre-flight UX check)`);
-  console.log(`GET  /api/user/profile/:address`);
-  console.log(`GET  /api/user/stake/:address/:habitType`);
-  console.log(`POST /api/quiz/generate                  [open]`);
-  console.log(`POST /api/quiz/submit                    [open]`);
-  console.log(`POST /api/workout/record                 [open]`);
-  console.log(`POST /api/admin/check-inactive`);
-  console.log(`POST /api/admin/clear-cache\n`);
-  console.log(`🌱  Seed claim: verified ON-CHAIN by the smart contract itself.\n`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`\n🚀  GoodCommit Backend — port ${PORT}`);
+    console.log(`Env:              ${process.env.NODE_ENV || 'development'}`);
+    console.log(`Verifier wallet:  ${verifierWallet?.address || '❌ not configured'}`);
+    console.log(`Staking contract: ${process.env.STAKING_CONTRACT_ADDRESS || '❌ not configured'}`);
+    console.log(`Identity:         ${IDENTITY_ADDRESS}  (Celo mainnet)`);
+    console.log(`RPC fallbacks:    ${CELO_MAINNET_RPCS.join(' → ')}\n`);
+    console.log(`GET  /health`);
+    console.log(`GET  /api/verify/status/:address         (identity badge)`);
+    console.log(`GET  /api/seed/eligibility/:address      (pre-flight UX check)`);
+    console.log(`GET  /api/user/profile/:address`);
+    console.log(`GET  /api/user/stake/:address/:habitType`);
+    console.log(`GET  /api/user/streak/:address`);
+    console.log(`POST /api/quiz/generate                  [open]`);
+    console.log(`POST /api/quiz/submit                    [open]`);
+    console.log(`POST /api/workout/record                 [open]`);
+    console.log(`POST /api/admin/check-inactive`);
+    console.log(`POST /api/admin/clear-cache\n`);
+    console.log(`🌱  Seed claim: verified ON-CHAIN by the smart contract itself.\n`);
+  });
+}
+
+module.exports = { app };
 
 
 
