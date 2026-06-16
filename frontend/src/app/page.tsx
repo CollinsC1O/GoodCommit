@@ -101,10 +101,10 @@ export default function Home() {
             <div className="min-w-0 bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
               <div className="text-slate-400 text-sm mb-1">Habit Streak</div>
               <div className="text-xl sm:text-2xl font-bold text-orange-400">
-                🔥 {streak ? streak.currentStreak : 0} days
+                🔥 {streakLoading ? 'Loading…' : `${streak ? streak.currentStreak : 0} days`}
               </div>
               <div className="mt-2 text-xs text-slate-500">
-                🏆 Longest: {streak ? streak.longestStreak : 0} days
+                🏆 Longest: {streakLoading ? '…' : `${streak ? streak.longestStreak : 0} days`}
               </div>
               {streakError && <div className="mt-2 text-xs text-rose-400">Unable to load streak</div>}
               {streakLoading && <div className="mt-2 text-xs text-slate-500">Loading streak…</div>}

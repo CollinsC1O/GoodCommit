@@ -134,9 +134,10 @@ function HealthPage() {
         alert(`Failed to record workout: ${data.message || data.error}`);
       } else {
         console.log('Workout recorded:', data);
-        // Refresh both stake and plant stage state after activity
+        // Refresh streak plus on-chain stake and plant state after activity
         await refetchStake();
         await refetchPlantStage();
+        await refetchStreak();
       }
     } catch (error) {
       console.error('Error recording workout:', error);
@@ -163,8 +164,8 @@ function HealthPage() {
   const commitmentEnd = hasStake ? Number(stakeInfo[3]) : 0;
   const activeStake = hasStake ? Boolean(stakeInfo[4]) : false;
   const status = hasStake && plantStage !== undefined ? Number(plantStage) as PlantStatus : PlantStatus.Seed;
-  const currentStreak = streak ? streak.currentStreak : (activeStake ? 1 : 0);
-  const longestStreak = streak ? streak.longestStreak : 0;
+  const currentStreak = streakLoading ? null : streak ? streak.currentStreak : (activeStake ? 1 : 0);
+  const longestStreak = streakLoading ? null : streak ? streak.longestStreak : 0;
 
   const getPlantEmoji = () => {
     if (!hasStake) return '🌱';
@@ -545,7 +546,10 @@ function HealthPage() {
               <h4 className="text-xl sm:text-2xl font-semibold text-slate-300 mb-3">{getStatusText()}</h4>
               {hasStake && (
                 <div className="space-y-3">
-                  <p className="text-base text-slate-500">Streak: {currentStreak} days</p>
+                  <p className="text-base text-slate-500">
+                    Streak: {streakLoading ? 'Loading…' : `${currentStreak} days`}
+                  </p>
+                  {streakError && <p className="text-xs text-rose-400 mt-2">Unable to load streak</p>}
                   <div className="bg-slate-950/50 rounded-xl p-4">
                     <div className="text-xs text-slate-400 mb-1">Habit Points</div>
                     <div className="text-2xl font-bold text-purple-400">{habitTotalPoints}</div>

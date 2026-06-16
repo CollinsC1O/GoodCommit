@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
@@ -15,10 +15,11 @@ export function useStreak() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchStreak = async () => {
+  const fetchStreak = useCallback(async () => {
     if (!address) {
       setStreak(null);
       setError(null);
+      setLoading(false);
       return;
     }
 
@@ -44,11 +45,11 @@ export function useStreak() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [address]);
 
   useEffect(() => {
     fetchStreak();
-  }, [address]);
+  }, [fetchStreak]);
 
   return {
     streak,
