@@ -6,6 +6,7 @@ import FaceVerification from '@/components/FaceVerification';
 import { useFaceVerification } from '@/hooks/useFaceVerification';
 import { useGToken } from '@/hooks/useGToken';
 import { useStaking } from '@/hooks/useStaking';
+import { useStreak } from '@/hooks/useStreak';
 import { HabitType } from '@/config/abis';
 import { formatUnits } from 'viem';
 
@@ -16,6 +17,7 @@ export default function Home() {
   const { balance } = useGToken();
   const { userProfile, stakeInfo: healthStake, claimInitialSeed, isClaimingSeed } = useStaking(HabitType.Health);
   const { stakeInfo: academicsStake } = useStaking(HabitType.Academics);
+  const { streak, loading: streakLoading, error: streakError } = useStreak();
 
   const activeHealthStake = healthStake ? Number(formatUnits(healthStake[0], 18)) : 0;
   const activeAcademicsStake = academicsStake ? Number(formatUnits(academicsStake[0], 18)) : 0;
@@ -95,6 +97,17 @@ export default function Home() {
                 <span className="mx-2 opacity-30">|</span>
                 <span title="Quizzes">📚 {totalQuizzes}</span>
               </div>
+            </div>
+            <div className="min-w-0 bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
+              <div className="text-slate-400 text-sm mb-1">Habit Streak</div>
+              <div className="text-xl sm:text-2xl font-bold text-orange-400">
+                🔥 {streak ? streak.currentStreak : 0} days
+              </div>
+              <div className="mt-2 text-xs text-slate-500">
+                🏆 Longest: {streak ? streak.longestStreak : 0} days
+              </div>
+              {streakError && <div className="mt-2 text-xs text-rose-400">Unable to load streak</div>}
+              {streakLoading && <div className="mt-2 text-xs text-slate-500">Loading streak…</div>}
             </div>
           </div>
         )}

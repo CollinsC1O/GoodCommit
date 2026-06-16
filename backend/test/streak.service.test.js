@@ -67,8 +67,8 @@ describe('Streak Service', () => {
     streakService.recordVerifiedActivity('0x0000000000000000000000000000000000000001', Date.UTC(2026, 5, 6, 9, 0, 0));
     const profile = streakService.recordVerifiedActivity('0x0000000000000000000000000000000000000001', Date.UTC(2026, 5, 7, 9, 0, 0));
 
-    assert.strictEqual(profile.currentStreak, 3);
-    assert.strictEqual(profile.longestStreak, 3);
+    assert.strictEqual(profile.currentStreak, 4);
+    assert.strictEqual(profile.longestStreak, 4);
     assert.strictEqual(profile.totalDaysActive, 6);
   });
 

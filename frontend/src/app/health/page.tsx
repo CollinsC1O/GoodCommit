@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import { useGToken } from '@/hooks/useGToken';
 import { useStaking } from '@/hooks/useStaking';
+import { useStreak } from '@/hooks/useStreak';
 import { HabitType, PlantStatus } from '@/config/abis';
 import { formatUnits } from 'viem';
 
@@ -15,6 +16,7 @@ function HealthPage() {
   const { isConnected, address } = useAccount();
   const { balance, approveStaking, isApproving, isApproved } = useGToken();
   const { stakeInfo, plantStage, plantSeed, isPlanting, isPlanted, refetchStake, refetchPlantStage } = useStaking(HabitType.Health);
+  const { streak, loading: streakLoading, error: streakError, refetchStreak } = useStreak();
   
   // Staking state
   const [stakeDurationSeconds, setStakeDurationSeconds] = useState(0);
@@ -39,8 +41,9 @@ function HealthPage() {
   useEffect(() => {
     if (isPlanted) {
       refetchStake();
+      refetchStreak();
     }
-  }, [isPlanted, refetchStake]);
+  }, [isPlanted, refetchStake, refetchStreak]);
   
   // Workout timer
   useEffect(() => {
@@ -160,7 +163,8 @@ function HealthPage() {
   const commitmentEnd = hasStake ? Number(stakeInfo[3]) : 0;
   const activeStake = hasStake ? Boolean(stakeInfo[4]) : false;
   const status = hasStake && plantStage !== undefined ? Number(plantStage) as PlantStatus : PlantStatus.Seed;
-  const currentStreak = activeStake ? 1 : 0;
+  const currentStreak = streak ? streak.currentStreak : (activeStake ? 1 : 0);
+  const longestStreak = streak ? streak.longestStreak : 0;
 
   const getPlantEmoji = () => {
     if (!hasStake) return '🌱';

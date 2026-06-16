@@ -264,6 +264,30 @@ app.get('/api/user/profile/:address', async (req, res) => {
   }
 });
 
+// ── User streak summary ─────────────────────────────────────────────────────
+app.get('/api/streak/:address', async (req, res) => {
+  try {
+    const addr = ethers.getAddress(req.params.address);
+    const streak = getStreak(addr);
+
+    if (!streak) {
+      return res.json({
+        currentStreak: 0,
+        longestStreak: 0,
+        totalDaysActive: 0,
+        lastActivityDate: null,
+        streakStartDate: null,
+        createdAt: null,
+        updatedAt: null,
+      });
+    }
+
+    res.json(streak);
+  } catch (err) {
+    res.status(400).json({ error: 'Invalid wallet address' });
+  }
+});
+
 // ── Habit stake ───────────────────────────────────────────────────────────────
 app.get('/api/user/streak/:address', async (req, res) => {
   try {
