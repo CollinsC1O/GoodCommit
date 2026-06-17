@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAccount } from 'wagmi';
 import { useGToken } from '@/hooks/useGToken';
 import { useStaking } from '@/hooks/useStaking';
+import { useStreak } from '@/hooks/useStreak';
 import { HabitType, PlantStatus } from '@/config/abis';
 
 type QuizStage = 'upload' | 'quiz' | 'results';
@@ -56,6 +57,8 @@ function AcademicsPage() {
     isUnstaking,
     isUnstaked,
   } = useStaking(HabitType.Academics);
+
+  const { streak, loading: streakLoading, error: streakError, refetchStreak } = useStreak();
 
   // Staking state
   const [stakeDurationSeconds, setStakeDurationSeconds] = useState(0);
@@ -279,6 +282,7 @@ function AcademicsPage() {
         console.log('Quiz submitted on-chain:', data);
         await refetchStake();
         await refetchPlantStage();
+        await refetchStreak();
       }
     } catch (error) {
       console.error('Error submitting quiz:', error);
@@ -639,8 +643,17 @@ function AcademicsPage() {
 
               <h4 className="text-xl sm:text-2xl font-semibold text-slate-300 mb-3">{getPlantStatusText()}</h4>
 
-              <div className="space-y-2">
-                <div className="bg-slate-950/50 rounded-xl p-4">
+                <div className="space-y-2">
+                  {hasStake && (
+                    <div className="bg-slate-950/50 rounded-xl p-4">
+                      <div className="text-sm text-slate-400 mb-1">Habit Streak</div>
+                      <div className="text-lg font-bold text-emerald-400">
+                        🔥 {streakLoading ? '…' : streak ? `${streak.currentStreak} days` : '0 days'}
+                      </div>
+                      {streakError && <p className="text-xs text-rose-400 mt-1">Unable to load streak</p>}
+                    </div>
+                  )}
+                  <div className="bg-slate-950/50 rounded-xl p-4">
                   <div className="text-sm text-slate-400 mb-1">Total Points (this habit)</div>
                   <div className="text-2xl sm:text-3xl font-bold text-purple-400">{habitTotalPoints}</div>
                   <div className="text-xs text-slate-500 mt-1">

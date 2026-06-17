@@ -164,7 +164,7 @@ function HealthPage() {
   const commitmentEnd = hasStake ? Number(stakeInfo[3]) : 0;
   const activeStake = hasStake ? Boolean(stakeInfo[4]) : false;
   const status = hasStake && plantStage !== undefined ? Number(plantStage) as PlantStatus : PlantStatus.Seed;
-  const currentStreak = streakLoading ? null : streak ? streak.currentStreak : (activeStake ? 1 : 0);
+  const currentStreak = streakLoading ? null : streak ? streak.currentStreak : 0;
   const longestStreak = streakLoading ? null : streak ? streak.longestStreak : 0;
 
   const getPlantEmoji = () => {

@@ -289,28 +289,6 @@ app.get('/api/streak/:address', async (req, res) => {
 });
 
 // ── Habit stake ───────────────────────────────────────────────────────────────
-app.get('/api/user/streak/:address', async (req, res) => {
-  try {
-    const addr = ethers.getAddress(req.params.address);
-    const streak = getStreak(addr);
-
-    if (!streak) {
-      return res.json({
-        currentStreak: 0,
-        longestStreak: 0,
-        totalDaysActive: 0,
-        lastActivityDate: null,
-        streakStartDate: null,
-        createdAt: null,
-        updatedAt: null,
-      });
-    }
-
-    res.json(streak);
-  } catch (err) {
-    res.status(400).json({ error: 'Invalid wallet address' });
-  }
-});
 app.get('/api/user/stake/:address/:habitType', async (req, res) => {
   try {
     if (!process.env.STAKING_CONTRACT_ADDRESS) {
@@ -573,7 +551,7 @@ if (require.main === module) {
     console.log(`GET  /api/seed/eligibility/:address      (pre-flight UX check)`);
     console.log(`GET  /api/user/profile/:address`);
     console.log(`GET  /api/user/stake/:address/:habitType`);
-    console.log(`GET  /api/user/streak/:address`);
+    console.log(`GET  /api/streak/:address               (habit streak)`);
     console.log(`POST /api/quiz/generate                  [open]`);
     console.log(`POST /api/quiz/submit                    [open]`);
     console.log(`POST /api/workout/record                 [open]`);
