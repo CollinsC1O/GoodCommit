@@ -5,6 +5,7 @@ const multer  = require('multer');
 const { ethers } = require('ethers');
 const pdfParse = require('pdf-parse');
 const { getStreak, recordVerifiedActivity } = require('./streakService');
+const { evaluateUser, getAchievements, getRecentAchievements } = require('./achievementService');
 
 const app = express();
 app.use(cors());
@@ -398,6 +399,14 @@ app.post('/api/quiz/submit', async (req, res) => {
       console.error('Streak update error:', streakError);
     }
 
+    let badgeAwards = [];
+    try {
+      const badgeResult = await evaluateUser(userAddress, new ethers.JsonRpcProvider(STAKING_RPC));
+      badgeAwards = badgeResult.newlyUnlocked;
+    } catch (badgeErr) {
+      console.error('Badge evaluation error:', badgeErr.message);
+    }
+
     res.json({
       success:        true,
       correctAnswers: correct,
@@ -410,9 +419,12 @@ app.post('/api/quiz/submit', async (req, res) => {
       txHash:         receipt.hash,
       streak:         streakProfile,
       streakError,
-      message: correct === 0    ? `All wrong! -3 pts 😔`
-              : correct === numQ ? `Perfect! +${earned} pts 🎉`
-              :                    `+${earned} pts 📚`,
+      badgeAwards,
+      message: badgeAwards.length
+        ? `Quiz complete! ${badgeAwards[0].title} badge unlocked! 🏆`
+        : correct === 0    ? `All wrong! -3 pts 😔`
+        : correct === numQ ? `Perfect! +${earned} pts 🎉`
+        :                    `+${earned} pts 📚`,
     });
   } catch (err) {
     console.error('Quiz submit error:', err);
@@ -448,6 +460,14 @@ app.post('/api/workout/record', async (req, res) => {
       console.error('Streak update error:', streakError);
     }
 
+    let badgeAwards = [];
+    try {
+      const badgeResult = await evaluateUser(userAddress, new ethers.JsonRpcProvider(STAKING_RPC));
+      badgeAwards = badgeResult.newlyUnlocked;
+    } catch (badgeErr) {
+      console.error('Badge evaluation error:', badgeErr.message);
+    }
+
     res.json({
       success:      true,
       pointsEarned: pts,
@@ -456,11 +476,51 @@ app.post('/api/workout/record', async (req, res) => {
       txHash:       receipt.hash,
       streak:       streakProfile,
       streakError,
-      message:      `Workout recorded! +${pts} pts 💪`,
+      badgeAwards,
+      message:      badgeAwards.length
+        ? `Workout recorded! +${pts} pts 💪 Badge unlocked: ${badgeAwards[0].title}!`
+        : `Workout recorded! +${pts} pts 💪`,
     });
   } catch (err) {
     console.error('Workout error:', err);
     res.status(500).json({ error: 'Failed to record workout' });
+  }
+});
+
+// ── Achievements & Badges ──────────────────────────────────────────────────────
+
+app.get('/api/achievements/:address', async (req, res) => {
+  try {
+    let addr;
+    try {
+      addr = ethers.getAddress(req.params.address);
+    } catch {
+      return res.status(400).json({ error: 'Invalid wallet address' });
+    }
+
+    if (!process.env.STAKING_CONTRACT_ADDRESS) {
+      return res.status(503).json({ error: 'Contract address not configured' });
+    }
+
+    const result = await withFallback(async (provider) => {
+      return await getAchievements(addr, provider);
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('Achievements error:', err.message);
+    res.status(503).json({ error: 'Could not fetch achievements', details: err.message });
+  }
+});
+
+app.get('/api/achievements/recent/:address', async (req, res) => {
+  try {
+    const addr = ethers.getAddress(req.params.address);
+    const limit = parseInt(req.query.limit) || 5;
+    const recent = getRecentAchievements(addr, limit);
+    res.json({ walletAddress: addr.toLowerCase(), recent });
+  } catch (err) {
+    res.status(400).json({ error: 'Invalid wallet address' });
   }
 });
 
@@ -552,6 +612,8 @@ if (require.main === module) {
     console.log(`GET  /api/user/profile/:address`);
     console.log(`GET  /api/user/stake/:address/:habitType`);
     console.log(`GET  /api/streak/:address               (habit streak)`);
+    console.log(`GET  /api/achievements/:address          (badges & progress)`);
+    console.log(`GET  /api/achievements/recent/:address   (recent badge unlocks)`);
     console.log(`POST /api/quiz/generate                  [open]`);
     console.log(`POST /api/quiz/submit                    [open]`);
     console.log(`POST /api/workout/record                 [open]`);
