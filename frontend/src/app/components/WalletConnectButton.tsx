@@ -51,7 +51,7 @@ export default function WalletConnectButton() {
             <button
               type="button"
               onClick={openChainModal}
-              className="hidden h-9 shrink-0 items-center gap-1.5 rounded-full bg-slate-800/80 px-3 text-xs font-semibold text-slate-200 border border-white/5 transition hover:bg-slate-800 sm:flex"
+              className="hidden h-9 shrink-0 items-center gap-1.5 rounded-full bg-slate-800/80 px-3 text-xs font-semibold text-slate-200 border border-white/5 transition hover:bg-slate-800 xl:flex"
             >
               {chain.hasIcon && chain.iconUrl ? (
                 <span
