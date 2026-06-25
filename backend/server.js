@@ -6,6 +6,14 @@ const { ethers } = require('ethers');
 const pdfParse = require('pdf-parse');
 const { getStreak, recordVerifiedActivity } = require('./streakService');
 const { evaluateUser, getAchievements, getRecentAchievements } = require('./achievementService');
+const { openBadgeDb } = require('./db/badge-db');
+const badgeDb = openBadgeDb();
+
+async function evaluateUserWithFallback(userAddress) {
+  return withFallback(async (provider) => {
+    return await evaluateUser(userAddress, provider);
+  });
+}
 
 const app = express();
 app.use(cors());
@@ -401,7 +409,7 @@ app.post('/api/quiz/submit', async (req, res) => {
 
     let badgeAwards = [];
     try {
-      const badgeResult = await evaluateUser(userAddress, new ethers.JsonRpcProvider(STAKING_RPC));
+      const badgeResult = await evaluateUserWithFallback(userAddress);
       badgeAwards = badgeResult.newlyUnlocked;
     } catch (badgeErr) {
       console.error('Badge evaluation error:', badgeErr.message);
@@ -462,7 +470,7 @@ app.post('/api/workout/record', async (req, res) => {
 
     let badgeAwards = [];
     try {
-      const badgeResult = await evaluateUser(userAddress, new ethers.JsonRpcProvider(STAKING_RPC));
+      const badgeResult = await evaluateUserWithFallback(userAddress);
       badgeAwards = badgeResult.newlyUnlocked;
     } catch (badgeErr) {
       console.error('Badge evaluation error:', badgeErr.message);
@@ -521,6 +529,48 @@ app.get('/api/achievements/recent/:address', async (req, res) => {
     res.json({ walletAddress: addr.toLowerCase(), recent });
   } catch (err) {
     res.status(400).json({ error: 'Invalid wallet address' });
+  }
+});
+
+// ── Migration: Evaluate and backfill badges for existing users ────────────────
+app.post('/api/admin/migrate-badges', async (req, res) => {
+  try {
+    const { adminKey, userAddresses } = req.body;
+    if (adminKey !== process.env.ADMIN_API_KEY) return res.status(403).json({ error: 'Unauthorized' });
+    if (!Array.isArray(userAddresses) || !userAddresses.length) {
+      return res.status(400).json({ error: 'userAddresses array required' });
+    }
+
+    const results = [];
+    for (const address of userAddresses) {
+      try {
+        const addr = ethers.getAddress(address);
+        const badgeResult = await evaluateUserWithFallback(addr);
+        results.push({
+          walletAddress: addr.toLowerCase(),
+          badgesUnlocked: badgeResult.newlyUnlocked.length,
+          newBadges: badgeResult.newlyUnlocked.map((b) => b.slug),
+          error: null,
+        });
+      } catch (err) {
+        results.push({
+          walletAddress: address,
+          badgesUnlocked: 0,
+          newBadges: [],
+          error: err.message,
+        });
+      }
+    }
+
+    const totalNew = results.reduce((sum, r) => sum + r.badgesUnlocked, 0);
+    res.json({
+      success: true,
+      totalUsersProcessed: userAddresses.length,
+      totalBadgesAwarded: totalNew,
+      results,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Migration failed', details: err.message });
   }
 });
 
@@ -618,7 +668,8 @@ if (require.main === module) {
     console.log(`POST /api/quiz/submit                    [open]`);
     console.log(`POST /api/workout/record                 [open]`);
     console.log(`POST /api/admin/check-inactive`);
-    console.log(`POST /api/admin/clear-cache\n`);
+    console.log(`POST /api/admin/clear-cache`);
+    console.log(`POST /api/admin/migrate-badges          [admin] (backfill existing users)\n`);
     console.log(`🌱  Seed claim: verified ON-CHAIN by the smart contract itself.\n`);
   });
 }

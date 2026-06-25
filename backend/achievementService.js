@@ -143,6 +143,9 @@ function evaluateRequirement(requirementType, requirementValue, stats) {
     case 'total_claimed':
       return stats.totalClaimed >= requirementValue;
 
+    case 'has_claimed':
+      return stats.totalClaimed > 0;
+
     default:
       return false;
   }
@@ -173,6 +176,9 @@ function getProgress(requirementType, requirementValue, stats) {
 
     case 'total_claimed':
       return Math.min(stats.totalClaimed, requirementValue);
+
+    case 'has_claimed':
+      return stats.totalClaimed > 0 ? 1 : 0;
 
     default:
       return 0;
@@ -363,6 +369,7 @@ module.exports = {
   getAchievements,
   getRecentAchievements,
   getExistingBadges,
+  getBadgeDefinitionsFromDb,
   loadUserStats,
   evaluateRequirement,
   getProgress,

@@ -4,9 +4,11 @@ import { useRouter } from 'next/navigation';
 import { useAccount } from 'wagmi';
 import FaceVerification from '@/components/FaceVerification';
 import { useFaceVerification } from '@/hooks/useFaceVerification';
+import Link from 'next/link';
 import { useGToken } from '@/hooks/useGToken';
 import { useStaking } from '@/hooks/useStaking';
 import { useStreak } from '@/hooks/useStreak';
+import { useRecentAchievements } from '@/hooks/useAchievements';
 import { HabitType } from '@/config/abis';
 import { formatUnits } from 'viem';
 
@@ -18,6 +20,7 @@ export default function Home() {
   const { userProfile, stakeInfo: healthStake, claimInitialSeed, isClaimingSeed } = useStaking(HabitType.Health);
   const { stakeInfo: academicsStake } = useStaking(HabitType.Academics);
   const { streak, loading: streakLoading, error: streakError } = useStreak();
+  const { badges: recentBadges, loading: recentLoading } = useRecentAchievements(5);
 
   const activeHealthStake = healthStake ? Number(formatUnits(healthStake[0], 18)) : 0;
   const activeAcademicsStake = academicsStake ? Number(formatUnits(academicsStake[0], 18)) : 0;
@@ -161,6 +164,63 @@ export default function Home() {
         </button>
 
       </div>
+
+      {/* ── Recent Achievements ──────────────────────────────────────────────── */}
+      {isConnected && (
+        <div className="mt-12 max-w-5xl mx-auto">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+              <span className="text-2xl">🏆</span> Recent Achievements
+            </h2>
+            <Link
+              href="/achievements"
+              className="text-sm text-emerald-400 hover:text-emerald-300 transition-colors"
+            >
+              View all →
+            </Link>
+          </div>
+          {recentLoading ? (
+            <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-6 text-center">
+              <p className="text-slate-500 text-sm">Loading achievements...</p>
+            </div>
+          ) : recentBadges.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              {recentBadges.map((badge) => {
+                const rarityCfg: Record<string, { label: string; color: string }> = {
+                  common: { label: 'Common', color: 'text-slate-300 border-slate-600 bg-slate-700/50' },
+                  rare: { label: 'Rare', color: 'text-blue-300 border-blue-600 bg-blue-700/50' },
+                  epic: { label: 'Epic', color: 'text-purple-300 border-purple-600 bg-purple-700/50' },
+                  legendary: { label: 'Legendary', color: 'text-orange-300 border-orange-600 bg-orange-700/50' },
+                  mythic: { label: 'Mythic', color: 'text-rose-300 border-rose-600 bg-rose-700/50' },
+                };
+                const rCfg = rarityCfg[badge.rarity] || rarityCfg.common;
+                return (
+                  <div
+                    key={badge.badgeId}
+                    className="bg-slate-900/80 border border-white/10 rounded-xl p-4 text-center hover:border-white/20 transition-all"
+                  >
+                    <div className="text-3xl mb-2">{badge.icon}</div>
+                    <h4 className="text-white text-sm font-bold truncate">{badge.title}</h4>
+                    <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full border mt-1 ${rCfg.color}`}>
+                      {rCfg.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-6 text-center">
+              <p className="text-slate-500 text-sm mb-2">No achievements yet</p>
+              <Link
+                href="/achievements"
+                className="text-emerald-400 text-sm hover:text-emerald-300 transition-colors"
+              >
+                View all available achievements →
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Two paths explainer ─────────────────────────────────────────────── */}
       {isConnected && (

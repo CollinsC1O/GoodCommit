@@ -6,7 +6,9 @@ import { useAccount } from 'wagmi';
 import { useGToken } from '@/hooks/useGToken';
 import { useStaking } from '@/hooks/useStaking';
 import { useStreak } from '@/hooks/useStreak';
+import { BadgeNotification } from '../components/BadgeNotification';
 import { HabitType, PlantStatus } from '@/config/abis';
+import type { BadgeRarity } from '@/config/badges';
 import { formatUnits } from 'viem';
 
 type ExerciseType = 'walking' | 'running' | 'gym-squat' | 'gym-weights' | 'gym-cardio';
@@ -17,6 +19,7 @@ function HealthPage() {
   const { balance, approveStaking, isApproving, isApproved } = useGToken();
   const { stakeInfo, plantStage, plantSeed, isPlanting, isPlanted, refetchStake, refetchPlantStage } = useStaking(HabitType.Health);
   const { streak, loading: streakLoading, error: streakError, refetchStreak } = useStreak();
+  const [newBadge, setNewBadge] = useState<{ title: string; description: string; icon: string; rarity: BadgeRarity } | null>(null);
   
   // Staking state
   const [stakeDurationSeconds, setStakeDurationSeconds] = useState(0);
@@ -134,6 +137,15 @@ function HealthPage() {
         alert(`Failed to record workout: ${data.message || data.error}`);
       } else {
         console.log('Workout recorded:', data);
+        if (data.badgeAwards && data.badgeAwards.length > 0) {
+          const badge = data.badgeAwards[0];
+          setNewBadge({
+            title: badge.title,
+            description: badge.description,
+            icon: badge.icon,
+            rarity: badge.rarity,
+          });
+        }
         // Refresh streak plus on-chain stake and plant state after activity
         await refetchStake();
         await refetchPlantStage();
@@ -686,6 +698,10 @@ function HealthPage() {
           )}
         </div>
       </div>
+      <BadgeNotification
+        badge={newBadge}
+        onClose={() => setNewBadge(null)}
+      />
     </div>
   );
 }

@@ -69,6 +69,7 @@ describe('Achievement Service', () => {
         'points_total',
         'plant_stage',
         'has_stake',
+        'has_claimed',
         'total_staked',
         'total_claimed',
       ];
@@ -170,6 +171,15 @@ describe('Achievement Service', () => {
 
     it('evaluates has_stake requirement when false', () => {
       assert.ok(!achievementService.evaluateRequirement('has_stake', 1, { hasInitialized: false, totalStaked: 0 }));
+    });
+
+    it('evaluates has_claimed requirement when true', () => {
+      assert.ok(achievementService.evaluateRequirement('has_claimed', 1, { totalClaimed: 1 }));
+      assert.ok(achievementService.evaluateRequirement('has_claimed', 1, { totalClaimed: 100 }));
+    });
+
+    it('evaluates has_claimed requirement when false', () => {
+      assert.ok(!achievementService.evaluateRequirement('has_claimed', 1, { totalClaimed: 0 }));
     });
 
     it('evaluates total_staked requirement', () => {
