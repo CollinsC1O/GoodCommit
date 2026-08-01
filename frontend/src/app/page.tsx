@@ -45,13 +45,13 @@ export default function Home() {
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <header className="mb-10 sm:mb-16 text-center">
-        <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight mb-6 text-slate-900 dark:text-white">
+        <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight mb-6 text-white">
           Grow your{' '}
           <span className="bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-400">
             Habit Garden
           </span>
         </h1>
-        <p className="text-lg md:text-xl text-slate-600 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed">
+        <p className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto leading-relaxed">
           Stake G$ on yourself. Build real-world healthy habits, prove you did the work,
           and harvest daily yields. Fail, and your stake funds the global UBI pool.
         </p>
@@ -280,7 +280,7 @@ export default function Home() {
 
       {!isConnected && (
         <div className="text-center mt-16">
-          <p className="text-slate-500 dark:text-slate-400 text-sm">
+          <p className="text-slate-400 text-sm">
             Connect your wallet above to get started
           </p>
         </div>
